@@ -132,6 +132,30 @@ python scripts/build_skill.py
 3. 3ds Max executes commands and returns JSON responses
 4. Claude sends commands through the MCP server and gets results back
 
+# Safe mode notice
+
+By default safe mode (safeExecute) is ON. This is a security feature so agents cannot run malicious commands.
+ 
+ Blocked
+  - DOSCommand — shell/cmd execution
+  - ShellLaunch — launch external applications
+  - deleteFile — delete files from disk
+  - python.Execute — Python execution inside 3ds Max
+  - createFile — write new files to disk
+ 
+
+  Allowed:
+  - All scene operations (create, modify, delete objects, materials, modifiers)
+  - openFile / readLine — read files
+  - getDir / getFiles — list directories and files
+  - render — render scenes
+  - saveMaxFile — save .max files
+  - gw.getViewportDib() — viewport capture
+  - fileIn — load MAXScript files (but reloading the server just restarts with safeMode = true again)
+
+If you want to disable safeExecute flip the `safeMode = true` to `false` in `mcp_server.ms`
+
+
 ## Current list of tools
 
 - `build_structure` - Procedurally builds larger structures (house, tower, castle, etc.)
