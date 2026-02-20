@@ -20,7 +20,7 @@ struct MCPServerStruct
 	listener = undefined,
 	isRunning = false,
 	port = 8765,
-	safeMode = false,
+	safeMode = true,
 
 	-- Escape a string for safe JSON embedding
 	fn escapeJsonString str =
@@ -121,6 +121,7 @@ struct MCPServerStruct
 			result = undefined
 			success = true
 			errorMsg = ""
+			savedSafeMode = safeMode
 
 			try
 			(
@@ -147,6 +148,9 @@ struct MCPServerStruct
 				success = false
 				errorMsg = getCurrentException()
 			)
+
+			-- Restore safeMode so commands cannot tamper with it
+			safeMode = savedSafeMode
 
 			response = buildResponse success result errorMsg
 		)
