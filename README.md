@@ -112,6 +112,9 @@ Edit `%APPDATA%\Claude\claude_desktop_config.json`
 ```
 Replace `C:\\path\\to\\3dsmax-mcp` with the actual path where you cloned the repo. Restart the Claude Desktop app after editing.
 
+#### Add skill to Claude app
+Open Claude app go to settings> capabilities section and upload the .MD
+
 ## How to update
 
 in powershell
