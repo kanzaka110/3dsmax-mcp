@@ -134,8 +134,16 @@ struct MCPServerStruct
 				)
 				else if cmdType == "python" then
 				(
-					python.Execute command
-					result = "Python executed"
+					if safeMode then
+					(
+						success = false
+						errorMsg = "Python execution blocked by safe mode"
+					)
+					else
+					(
+						python.Execute command
+						result = "Python executed"
+					)
 				)
 				else
 				(
