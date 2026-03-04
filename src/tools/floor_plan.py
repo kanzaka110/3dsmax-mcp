@@ -14,18 +14,16 @@ from typing import Any
 
 from ..server import mcp, client
 from ..helpers.construction import DOOR_OPENING_WIDTH, LABEL_SIZE
+from src.helpers.maxscript import safe_string
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _safe_name(name: str) -> str:
-    return name.replace("\\", "\\\\").replace('"', '\\"')
-
 
 def _create_dummy(name: str, pos: list[float], box_size: list[float]) -> str:
-    safe = _safe_name(name)
+    safe = safe_string(name)
     px, py, pz = pos
     bx, by, bz = box_size
     cmd = f"""(
@@ -38,8 +36,8 @@ def _create_dummy(name: str, pos: list[float], box_size: list[float]) -> str:
 
 
 def _parent_objects(children: list[str], parent: str) -> str:
-    names_arr = "#(" + ", ".join(f'"{_safe_name(n)}"' for n in children) + ")"
-    safe_p = _safe_name(parent)
+    names_arr = "#(" + ", ".join(f'"{safe_string(n)}"' for n in children) + ")"
+    safe_p = safe_string(parent)
     cmd = f"""(
         local parentObj = getNodeByName "{safe_p}"
         local childNames = {names_arr}
@@ -361,7 +359,7 @@ def build_floor_plan(
     # --- Wall spline ---
     spline_idx = 1
     spline_lines = []
-    spline_lines.append(f'ss = SplineShape name:"{_safe_name(prefix)}_Walls" pos:[{ox},{oy},{oz}]')
+    spline_lines.append(f'ss = SplineShape name:"{safe_string(prefix)}_Walls" pos:[{ox},{oy},{oz}]')
 
     for edge, ra, rb in walls:
         (gx1, gy1), (gx2, gy2) = edge
@@ -403,10 +401,10 @@ def build_floor_plan(
                 continue
             gcx, gcy = _room_centroid(cells)
             wx, wy = _grid_to_world(gcx, gcy, cell_size, location)
-            safe = _safe_name(f"{prefix}_{rname}")
+            safe = safe_string(f"{prefix}_{rname}")
             lr, lg, lb = label_color
             label_cmd = f"""(
-                txt = Text name:"{safe}" text:"{_safe_name(rname)}" size:{label_size} pos:[{wx},{wy},{oz}] alignment:2
+                txt = Text name:"{safe}" text:"{safe_string(rname)}" size:{label_size} pos:[{wx},{wy},{oz}] alignment:2
                 txt.wirecolor = color {lr} {lg} {lb}
                 txt.name
             )"""

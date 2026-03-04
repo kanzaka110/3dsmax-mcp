@@ -1,9 +1,6 @@
 from typing import Optional
 from ..server import mcp, client
-
-
-def _safe_name(name: str) -> str:
-    return name.replace("\\", "\\\\").replace('"', '\\"')
+from src.helpers.maxscript import safe_string
 
 
 @mcp.tool()
@@ -38,11 +35,11 @@ def set_visibility(
         return f"Unknown action: {action}. Use hide, show, toggle, freeze, or unfreeze."
 
     if names:
-        name_arr = "#(" + ", ".join(f'"{_safe_name(n)}"' for n in names) + ")"
+        name_arr = "#(" + ", ".join(f'"{safe_string(n)}"' for n in names) + ")"
         collect_line = f"""local nameList = {name_arr}
             local matched = for n in nameList where (getNodeByName n) != undefined collect (getNodeByName n)"""
     elif pattern:
-        safe_pat = _safe_name(pattern)
+        safe_pat = safe_string(pattern)
         collect_line = f"""local matched = for obj in objects where matchPattern obj.name pattern:"{safe_pat}" collect obj"""
     else:
         return "At least one of names or pattern must be provided."

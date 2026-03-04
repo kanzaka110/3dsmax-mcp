@@ -1,9 +1,6 @@
 from typing import Optional
 from ..server import mcp, client
-
-
-def _safe_name(name: str) -> str:
-    return name.replace("\\", "\\\\").replace('"', '\\"')
+from src.helpers.maxscript import safe_string
 
 
 @mcp.tool()
@@ -25,7 +22,7 @@ def transform_object(
 
     Returns confirmation of applied transforms.
     """
-    safe = _safe_name(name)
+    safe = safe_string(name)
 
     ops = []
     if move:

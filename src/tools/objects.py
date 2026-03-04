@@ -1,9 +1,5 @@
 from ..server import mcp, client
-
-
-def _safe_name(name: str) -> str:
-    """Escape a string for use in a MAXScript string literal."""
-    return name.replace("\\", "\\\\").replace('"', '\\"')
+from src.helpers.maxscript import safe_string
 
 
 @mcp.tool()
@@ -15,7 +11,7 @@ def get_object_properties(name: str) -> str:
 
     Returns properties including transform, material, and modifier stack.
     """
-    safe = _safe_name(name)
+    safe = safe_string(name)
     maxscript = f"""(
         local obj = getNodeByName "{safe}"
         if obj != undefined then (
@@ -94,13 +90,13 @@ def set_object_property(name: str, property: str, value: str) -> str:
 
     Returns confirmation or error message.
     """
-    safe = _safe_name(name)
-    safe_prop = _safe_name(property)
+    safe = safe_string(name)
+    safe_prop = safe_string(property)
     maxscript = f"""(
         local obj = getNodeByName "{safe}"
         if obj != undefined then (
             try (
-                execute ("obj." + "{safe_prop}" + " = " + "{value}")
+                execute ("$'" + obj.name + "'." + "{safe_prop}" + " = " + "{value}")
                 "Set {safe_prop} = " + ({value} as string) + " on " + obj.name
             ) catch (
                 "Error: " + (getCurrentException())
@@ -124,7 +120,7 @@ def create_object(type: str, name: str = "", params: str = "") -> str:
 
     Returns the name of the created object.
     """
-    safe = _safe_name(name)
+    safe = safe_string(name)
     name_param = f' name:"{safe}"' if name else ""
     maxscript = f"""(
         local obj = {type}{name_param} {params}
@@ -143,7 +139,7 @@ def delete_objects(names: list[str]) -> str:
 
     Returns summary of deleted and not found objects.
     """
-    name_checks = [f'"{_safe_name(n)}"' for n in names]
+    name_checks = [f'"{safe_string(n)}"' for n in names]
     names_array = "#(" + ", ".join(name_checks) + ")"
 
     maxscript = f"""(

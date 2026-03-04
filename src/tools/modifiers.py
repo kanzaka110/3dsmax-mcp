@@ -1,9 +1,6 @@
 from typing import Optional
 from ..server import mcp, client
-
-
-def _safe_name(name: str) -> str:
-    return name.replace("\\", "\\\\").replace('"', '\\"')
+from src.helpers.maxscript import safe_string
 
 
 @mcp.tool()
@@ -17,7 +14,7 @@ def add_modifier(name: str, modifier: str, params: str = "") -> str:
 
     Returns confirmation or error.
     """
-    safe = _safe_name(name)
+    safe = safe_string(name)
     maxscript = f"""(
         local obj = getNodeByName "{safe}"
         if obj != undefined then (
@@ -46,8 +43,8 @@ def remove_modifier(name: str, modifier: str) -> str:
 
     Returns confirmation or error.
     """
-    safe = _safe_name(name)
-    safe_mod = _safe_name(modifier)
+    safe = safe_string(name)
+    safe_mod = safe_string(modifier)
     maxscript = f"""(
         local obj = getNodeByName "{safe}"
         if obj != undefined then (
@@ -101,12 +98,12 @@ def set_modifier_state(
 
     Returns confirmation.
     """
-    safe = _safe_name(name)
+    safe = safe_string(name)
 
     if modifier_index > 0:
         find_mod = f"local mod = obj.modifiers[{modifier_index}]"
     else:
-        safe_mod = _safe_name(modifier_name)
+        safe_mod = safe_string(modifier_name)
         find_mod = f"""local mod = undefined
             for i = 1 to obj.modifiers.count do (
                 if obj.modifiers[i].name == "{safe_mod}" do (mod = obj.modifiers[i]; exit)
@@ -163,7 +160,7 @@ def collapse_modifier_stack(
 
     Returns confirmation.
     """
-    safe = _safe_name(name)
+    safe = safe_string(name)
     if to_index > 0:
         maxscript = f"""(
             local obj = getNodeByName "{safe}"
@@ -205,7 +202,7 @@ def make_modifier_unique(name: str, modifier_index: int) -> str:
 
     Returns confirmation.
     """
-    safe = _safe_name(name)
+    safe = safe_string(name)
     maxscript = f"""(
         local obj = getNodeByName "{safe}"
         if obj != undefined then (
@@ -247,11 +244,11 @@ def batch_modify(
 
     Returns count of modified modifiers.
     """
-    safe_class = _safe_name(modifier_class)
-    safe_prop = _safe_name(property_name)
+    safe_class = safe_string(modifier_class)
+    safe_prop = safe_string(property_name)
 
     if names:
-        name_arr = "#(" + ", ".join(f'"{_safe_name(n)}"' for n in names) + ")"
+        name_arr = "#(" + ", ".join(f'"{safe_string(n)}"' for n in names) + ")"
         collect_line = f"local objsel = for n in {name_arr} where (getNodeByName n) != undefined collect (getNodeByName n)"
     elif selection_only:
         collect_line = "local objsel = selection as array"

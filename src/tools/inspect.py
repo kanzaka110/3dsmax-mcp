@@ -6,10 +6,7 @@ InstanceMgr for instance awareness.
 """
 
 from ..server import mcp, client
-
-
-def _safe_name(name: str) -> str:
-    return name.replace("\\", "\\\\").replace('"', '\\"')
+from src.helpers.maxscript import safe_string
 
 
 @mcp.tool()
@@ -26,7 +23,7 @@ def inspect_object(name: str) -> str:
 
     Returns detailed JSON property dump.
     """
-    safe = _safe_name(name)
+    safe = safe_string(name)
     maxscript = f"""(
         local obj = getNodeByName "{safe}"
         if obj == undefined then (
@@ -154,7 +151,7 @@ def inspect_properties(
         JSON with all properties, their current values, runtime types,
         and declared types.
     """
-    safe = _safe_name(name)
+    safe = safe_string(name)
 
     # Build the MAXScript expression to get the target object
     if target == "baseobject":

@@ -7,14 +7,7 @@ math-driven motion, and list controllers for layered blending.
 
 from typing import Optional
 from ..server import mcp, client
-
-
-def _safe(s: str) -> str:
-    return s.replace("\\", "\\\\").replace('"', '\\"')
-
-
-def _safe_name(s: str) -> str:
-    return s.replace("\\", "\\\\").replace('"', '\\"').replace("'", "\\'")
+from src.helpers.maxscript import safe_string, safe_name
 
 
 # ── Controller type registry ────────────────────────────────────────
@@ -79,13 +72,13 @@ def _build_prop_lines(prefix: str, params: dict) -> list[str]:
     """Build MAXScript lines to set properties on a controller variable."""
     lines = []
     for key, val in params.items():
-        safe_key = _safe(key)
+        safe_key = safe_string(key)
         if isinstance(val, bool):
             lines.append(f'try ({prefix}.{safe_key} = {"true" if val else "false"}) catch ()')
         elif isinstance(val, (int, float)):
             lines.append(f'try ({prefix}.{safe_key} = {val}) catch ()')
         elif isinstance(val, str):
-            safe_val = _safe(val)
+            safe_val = safe_string(val)
             lines.append(f'try ({prefix}.{safe_key} = "{safe_val}") catch ()')
     return lines
 
@@ -147,8 +140,8 @@ def assign_controller(
         keys = ", ".join(sorted(_CONTROLLER_MAP.keys()))
         return f"Unknown controller_type: {controller_type}. Available: {keys}"
 
-    safe_obj = _safe_name(name)
-    safe_path = _safe(param_path)
+    safe_obj = safe_name(name)
+    safe_path = safe_string(param_path)
     sep = "" if safe_path.startswith("[") else "."
     ctor = _CONTROLLER_MAP[ct]
 
@@ -227,33 +220,33 @@ def _build_controller_config(
     if variables:
         if ct in _SCRIPT_TYPES:
             for var in variables:
-                vname = _safe(var.get("var_name", ""))
-                vobj = _safe_name(var.get("object", ""))
+                vname = safe_string(var.get("var_name", ""))
+                vobj = safe_name(var.get("object", ""))
                 lines.append(f'local varNode = getNodeByName "{vobj}"')
                 lines.append(f'if varNode != undefined do {ctrl_var}.addNode "{vname}" varNode')
         elif ct in _CONSTRAINT_TYPES:
             for var in variables:
-                tobj = _safe_name(var.get("object", ""))
+                tobj = safe_name(var.get("object", ""))
                 weight = var.get("weight", 50.0)
                 lines.append(f'local tgtNode = getNodeByName "{tobj}"')
                 lines.append(f'if tgtNode != undefined do {ctrl_var}.appendTarget tgtNode {weight}')
         elif ct == _LINK_TYPE:
             for var in variables:
-                tobj = _safe_name(var.get("object", ""))
+                tobj = safe_name(var.get("object", ""))
                 frame = var.get("frame", 0)
                 lines.append(f'local tgtNode = getNodeByName "{tobj}"')
                 lines.append(f'if tgtNode != undefined do {ctrl_var}.addTarget tgtNode {frame}')
         elif ct == _ATTACHMENT_TYPE:
             for var in variables:
-                tobj = _safe_name(var.get("object", ""))
+                tobj = safe_name(var.get("object", ""))
                 face = var.get("face", 1)
                 lines.append(f'local tgtNode = getNodeByName "{tobj}"')
                 lines.append(f'if tgtNode != undefined do {ctrl_var}.appendTarget tgtNode {face}')
         elif ct in _EXPRESSION_TYPES:
             for var in variables:
-                vname = _safe(var.get("var_name", ""))
-                tobj = _safe_name(var.get("object", ""))
-                tpath = _safe(var.get("target_param_path", ""))
+                vname = safe_string(var.get("var_name", ""))
+                tobj = safe_name(var.get("object", ""))
+                tpath = safe_string(var.get("target_param_path", ""))
                 tsep = "" if tpath.startswith("[") else "."
                 lines.append(f'local tgtNode = getNodeByName "{tobj}"')
                 lines.append(f'if tgtNode != undefined do (')
@@ -300,8 +293,8 @@ def inspect_controller(
     Returns:
         JSON with controller details, properties table, and type-specific sections.
     """
-    safe_obj = _safe_name(name)
-    safe_path = _safe(param_path)
+    safe_obj = safe_name(name)
+    safe_path = safe_string(param_path)
     sep = "" if safe_path.startswith("[") else "."
 
     maxscript = f"""(
@@ -468,10 +461,10 @@ def add_controller_target(
     Returns:
         Confirmation message.
     """
-    safe_obj = _safe_name(name)
-    safe_path = _safe(param_path)
-    safe_target = _safe_name(target_object)
-    safe_var = _safe(var_name) if var_name else ""
+    safe_obj = safe_name(name)
+    safe_path = safe_string(param_path)
+    safe_target = safe_name(target_object)
+    safe_var = safe_string(var_name) if var_name else ""
     sep = "" if safe_path.startswith("[") else "."
 
     lines = [
@@ -551,8 +544,8 @@ def set_controller_props(
     Returns:
         Confirmation message.
     """
-    safe_obj = _safe_name(name)
-    safe_path = _safe(param_path)
+    safe_obj = safe_name(name)
+    safe_path = safe_string(param_path)
     sep = "" if safe_path.startswith("[") else "."
 
     lines = [

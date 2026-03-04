@@ -1,8 +1,5 @@
 from ..server import mcp, client
-
-
-def _safe_name(name: str) -> str:
-    return name.replace("\\", "\\\\").replace('"', '\\"')
+from src.helpers.maxscript import safe_string
 
 
 @mcp.tool()
@@ -15,10 +12,10 @@ def set_parent(children: list[str], parent: str = "") -> str:
 
     Returns confirmation summary.
     """
-    child_names = "#(" + ", ".join(f'"{_safe_name(n)}"' for n in children) + ")"
+    child_names = "#(" + ", ".join(f'"{safe_string(n)}"' for n in children) + ")"
 
     if parent:
-        safe_parent = _safe_name(parent)
+        safe_parent = safe_string(parent)
         maxscript = f"""(
             local parentObj = getNodeByName "{safe_parent}"
             if parentObj == undefined then (
@@ -72,7 +69,7 @@ def get_hierarchy(name: str) -> str:
 
     Returns JSON tree with name, class, and children for each node.
     """
-    safe = _safe_name(name)
+    safe = safe_string(name)
     maxscript = f"""(
         fn buildTree obj = (
             local childArr = #()

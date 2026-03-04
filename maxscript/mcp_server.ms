@@ -21,30 +21,85 @@ struct MCPServerStruct
 	isRunning = false,
 	port = 8765,
 	safeMode = true,
+	protocolVersion = 2,
 
-	-- Escape a string for safe JSON embedding
+	-- Parse a hex string (e.g. "00e9") to integer for \uXXXX decoding
+	fn hexToInt hexStr =
+	(
+		local val = 0
+		for i = 1 to hexStr.count do
+		(
+			local c = bit.charAsInt (toLower hexStr[i])
+			local d = if c >= 48 and c <= 57 then c - 48
+					  else if c >= 97 and c <= 102 then c - 87
+					  else 0
+			val = val * 16 + d
+		)
+		val
+	),
+
+	-- Escape a string for safe JSON embedding (handles all JSON-required escapes)
 	fn escapeJsonString str =
 	(
-		s = str as string
+		if str == undefined then return ""
+		local s = str as string
+		-- Fast path: common escapes via native substituteString
 		s = substituteString s "\\" "\\\\"
 		s = substituteString s "\"" "\\\""
 		s = substituteString s "\n" "\\n"
 		s = substituteString s "\r" "\\r"
 		s = substituteString s "\t" "\\t"
+		-- Check for remaining control chars (backspace, form feed, etc.)
+		local hasControl = false
+		for i = 1 to s.count while not hasControl do
+		(
+			local code = bit.charAsInt s[i]
+			if code < 32 do hasControl = true
+		)
+		if hasControl then
+		(
+			local result = ""
+			local hexChars = "0123456789abcdef"
+			for i = 1 to s.count do
+			(
+				local code = bit.charAsInt s[i]
+				if code == 8 then result += "\\b"
+				else if code == 12 then result += "\\f"
+				else if code < 32 then
+				(
+					local hi = (mod (bit.shift code -4) 16) as integer + 1
+					local lo = (mod code 16) as integer + 1
+					result += "\\u00" + hexChars[hi] + hexChars[lo]
+				)
+				else result += s[i]
+			)
+			s = result
+		)
 		s
 	),
 
 	-- Build a JSON response string
-	fn buildResponse success result errorMsg =
+	fn buildResponse success result errorMsg requestId:"" startedAt:0 cmdType:"maxscript" =
 	(
-		safeResult = escapeJsonString (if result != undefined then (result as string) else "")
-		safeError = escapeJsonString errorMsg
-		successStr = if success then "true" else "false"
+		local safeResult = escapeJsonString (if result != undefined then (result as string) else "")
+		local safeError = escapeJsonString errorMsg
+		local successStr = if success then "true" else "false"
+		local safeReqId = escapeJsonString requestId
+		local safeCmdType = escapeJsonString cmdType
+		local reqField = if requestId != "" then ("\"" + safeReqId + "\"") else "null"
+		local durationMs = amax #(0, (timeStamp() - startedAt))
 
 		"{" + \
 			"\"success\":" + successStr + "," + \
+			"\"requestId\":" + reqField + "," + \
 			"\"result\":\"" + safeResult + "\"," + \
-			"\"error\":\"" + safeError + "\"" + \
+			"\"error\":\"" + safeError + "\"," + \
+			"\"meta\":{" + \
+				"\"protocolVersion\":" + (protocolVersion as string) + "," + \
+				"\"cmdType\":\"" + safeCmdType + "\"," + \
+				"\"safeMode\":" + (if safeMode then "true" else "false") + "," + \
+				"\"durationMs\":" + (durationMs as string) + \
+			"}" + \
 		"}"
 	),
 
@@ -78,6 +133,23 @@ struct MCPServerStruct
 					else if nextChar == "n" then (result += "\n"; pos += 2)
 					else if nextChar == "r" then (result += "\r"; pos += 2)
 					else if nextChar == "t" then (result += "\t"; pos += 2)
+					else if nextChar == "b" then (result += (bit.intAsChar 8); pos += 2)
+					else if nextChar == "f" then (result += (bit.intAsChar 12); pos += 2)
+					else if nextChar == "/" then (result += "/"; pos += 2)
+					else if nextChar == "u" and pos + 5 <= jsonStr.count then
+					(
+						local hexStr = substring jsonStr (pos + 2) 4
+						local codepoint = hexToInt hexStr
+						if codepoint > 0 then
+						(
+							if codepoint <= 255 then
+								result += bit.intAsChar codepoint
+							else
+								try (result += ((dotNetClass "System.Char").ConvertFromUtf32 codepoint))
+								catch (result += "?")
+						)
+						pos += 6
+					)
 					else (result += jsonStr[pos]; pos += 1)
 				)
 				else if jsonStr[pos] == "\"" then
@@ -104,28 +176,44 @@ struct MCPServerStruct
 	-- Process a request and return JSON response
 	fn processRequest jsonString =
 	(
-		response = ""
+		local response = ""
+		local startedAt = timeStamp()
 
 		try
 		(
-			command = extractJsonValue jsonString "command"
-			cmdType = extractJsonValue jsonString "type"
+			local command = extractJsonValue jsonString "command"
+			local cmdType = extractJsonValue jsonString "type"
+			local requestId = extractJsonValue jsonString "requestId"
 
 			if cmdType == "" do cmdType = "maxscript"
 
-			if command == "" then
+			if cmdType != "ping" and command == "" then
 			(
-				return (buildResponse false undefined "Empty command")
+				return (buildResponse false undefined "Empty command" requestId:requestId startedAt:startedAt cmdType:cmdType)
 			)
 
-			result = undefined
-			success = true
-			errorMsg = ""
-			savedSafeMode = safeMode
+			local result = undefined
+			local success = true
+			local errorMsg = ""
+			local savedSafeMode = safeMode
 
 			try
 			(
-				if cmdType == "maxscript" then
+				if cmdType == "ping" then
+				(
+					local maxYear = ((1998 + ((maxVersion())[1] / 1000)) as integer)
+					local rendererName = try ((classOf renderers.current) as string) catch "unknown"
+					result = "{\"pong\":true" + \
+						",\"server\":\"3dsmax-mcp\"" + \
+						",\"protocolVersion\":" + (protocolVersion as string) + \
+						",\"maxVersion\":" + (maxYear as string) + \
+						",\"renderer\":\"" + (escapeJsonString rendererName) + "\"" + \
+						",\"objectCount\":" + (objects.count as string) + \
+						",\"selectionCount\":" + (selection.count as string) + \
+						",\"safeMode\":" + (if safeMode then "true" else "false") + \
+						",\"port\":" + (port as string) + "}"
+				)
+				else if cmdType == "maxscript" then
 				(
 					if safeMode then
 						result = safeExecute command
@@ -160,11 +248,11 @@ struct MCPServerStruct
 			-- Restore safeMode so commands cannot tamper with it
 			safeMode = savedSafeMode
 
-			response = buildResponse success result errorMsg
+			response = buildResponse success result errorMsg requestId:requestId startedAt:startedAt cmdType:cmdType
 		)
 		catch
 		(
-			response = buildResponse false undefined ("Parse error: " + (getCurrentException()))
+			response = buildResponse false undefined ("Parse error: " + (getCurrentException())) startedAt:startedAt
 		)
 
 		response

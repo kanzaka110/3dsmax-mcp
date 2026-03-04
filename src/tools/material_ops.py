@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 from typing import Optional
 from ..server import mcp, client
+from src.helpers.maxscript import safe_string
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +178,7 @@ def _build_arnold_maxscript(
 ) -> str:
     """Generate MAXScript for Arnold (ai_standard_surface) material setup."""
     lines: list[str] = []
-    safe_mat = _safe_name(material_name)
+    safe_mat = safe_string(material_name)
     lines.append(f'mat = ai_standard_surface name:"{safe_mat}"')
     lines.append('summary = "Arnold ai_standard_surface"')
     lines.append('channelList = ""')
@@ -250,7 +251,7 @@ def _build_arnold_maxscript(
 
     # Assign to objects
     if assign_to:
-        names_arr = "#(" + ", ".join(f'"{_safe_name(n)}"' for n in assign_to) + ")"
+        names_arr = "#(" + ", ".join(f'"{safe_string(n)}"' for n in assign_to) + ")"
         lines.append(f'nameList = {names_arr}')
         lines.append('assignCount = 0')
         lines.append('for n in nameList do (obj = getNodeByName n; if obj != undefined then (obj.material = mat; assignCount += 1))')
@@ -269,7 +270,7 @@ def _build_physical_maxscript(
 ) -> str:
     """Generate MAXScript for PhysicalMaterial setup."""
     lines: list[str] = []
-    safe_mat = _safe_name(material_name)
+    safe_mat = safe_string(material_name)
     lines.append(f'mat = PhysicalMaterial name:"{safe_mat}"')
     lines.append('summary = "PhysicalMaterial"')
     lines.append('channelList = ""')
@@ -332,7 +333,7 @@ def _build_physical_maxscript(
                 lines.append(f'channelList += "{channel}, "')
 
     if assign_to:
-        names_arr = "#(" + ", ".join(f'"{_safe_name(n)}"' for n in assign_to) + ")"
+        names_arr = "#(" + ", ".join(f'"{safe_string(n)}"' for n in assign_to) + ")"
         lines.append(f'nameList = {names_arr}')
         lines.append('assignCount = 0')
         lines.append('for n in nameList do (obj = getNodeByName n; if obj != undefined then (obj.material = mat; assignCount += 1))')
@@ -351,7 +352,7 @@ def _build_redshift_maxscript(
 ) -> str:
     """Generate MAXScript for Redshift (RS_Standard_Material) setup."""
     lines: list[str] = []
-    safe_mat = _safe_name(material_name)
+    safe_mat = safe_string(material_name)
     lines.append(f'mat = RS_Standard_Material name:"{safe_mat}"')
     lines.append('summary = "Redshift RS_Standard_Material"')
     lines.append('channelList = ""')
@@ -419,7 +420,7 @@ def _build_redshift_maxscript(
                 lines.append(f'channelList += "{channel}, "')
 
     if assign_to:
-        names_arr = "#(" + ", ".join(f'"{_safe_name(n)}"' for n in assign_to) + ")"
+        names_arr = "#(" + ", ".join(f'"{safe_string(n)}"' for n in assign_to) + ")"
         lines.append(f'nameList = {names_arr}')
         lines.append('assignCount = 0')
         lines.append('for n in nameList do (obj = getNodeByName n; if obj != undefined then (obj.material = mat; assignCount += 1))')
@@ -429,10 +430,6 @@ def _build_redshift_maxscript(
     lines.append('summary')
 
     return "(\n    " + "\n    ".join(lines) + "\n)"
-
-
-def _safe_name(name: str) -> str:
-    return name.replace("\\", "\\\\").replace('"', '\\"')
 
 
 @mcp.tool()
@@ -460,9 +457,9 @@ def assign_material(
     Returns:
         Confirmation with material name and assigned object count.
     """
-    safe_mat_name = _safe_name(material_name)
+    safe_mat_name = safe_string(material_name)
     name_param = f' name:"{safe_mat_name}"' if material_name else ""
-    name_arr = "#(" + ", ".join(f'"{_safe_name(n)}"' for n in names) + ")"
+    name_arr = "#(" + ", ".join(f'"{safe_string(n)}"' for n in names) + ")"
 
     maxscript = f"""(
         try (
@@ -527,8 +524,8 @@ def set_material_property(
     Returns:
         Confirmation with the property name and new value, or error message.
     """
-    safe = _safe_name(name)
-    safe_prop = _safe_name(property)
+    safe = safe_string(name)
+    safe_prop = safe_string(property)
 
     if sub_material_index > 0:
         mat_expr = f"obj.material[{sub_material_index}]"
@@ -594,7 +591,7 @@ def set_material_properties(
     Returns:
         Summary of all properties set and any errors encountered.
     """
-    safe = _safe_name(name)
+    safe = safe_string(name)
 
     if sub_material_index > 0:
         mat_expr = f"obj.material[{sub_material_index}]"
@@ -604,7 +601,7 @@ def set_material_properties(
     # Build the property-setting lines
     set_lines = []
     for prop, val in properties.items():
-        safe_prop = _safe_name(prop)
+        safe_prop = safe_string(prop)
         set_lines.append(
             f'try (mat.{safe_prop} = {val}; append okList "{safe_prop}") '
             f'catch (append errList ("{safe_prop}: " + (getCurrentException())))'
@@ -674,7 +671,7 @@ def get_material_slots(
     Returns:
         Compact JSON with categorized slot names (and optional values).
     """
-    safe = _safe_name(name)
+    safe = safe_string(name)
     max_slots = max(1, int(max_slots))
     max_per_group = max(1, int(max_per_group))
     slot_scope = (slot_scope or "map").strip().lower()
@@ -688,21 +685,14 @@ def get_material_slots(
         mat_expr = "obj.material"
 
     maxscript = f"""(
-        fn jsonEscape s = (
-            local t = (s as string)
-            t = substituteString t "\\\\" "\\\\\\\\"
-            t = substituteString t "\\\"" "'"
-            t = substituteString t "\\n" " "
-            t = substituteString t "\\r" ""
-            t
-        )
+        local esc = MCP_Server.escapeJsonString
 
         fn toJsonNameArray arr = (
             local out = "["
             local q = (bit.intAsChar 34)
             for i = 1 to arr.count do (
                 if i > 1 do out += ","
-                out += q + (jsonEscape arr[i]) + q
+                out += q + (esc arr[i]) + q
             )
             out += "]"
             out
@@ -716,7 +706,7 @@ def get_material_slots(
             local lim = amin #(names.count, vals.count)
             for i = 1 to lim do (
                 if i > 1 do out += ","
-                out += lb + q + "name" + q + ":" + q + (jsonEscape names[i]) + q + "," + q + "value" + q + ":" + q + (jsonEscape vals[i]) + q + rb
+                out += lb + q + "name" + q + ":" + q + (esc names[i]) + q + "," + q + "value" + q + ":" + q + (esc vals[i]) + q + rb
             )
             out += "]"
             out
@@ -733,13 +723,13 @@ def get_material_slots(
 
         local obj = getNodeByName "{safe}"
         if obj == undefined then (
-            "{{\\\\"error\\\\":\\\\"Object not found: {safe}\\\\"}}"
+            "{{\\"error\\":\\"Object not found: {safe}\\"}}"
         ) else if obj.material == undefined then (
-            "{{\\\\"error\\\\":\\\\"No material assigned to {safe}\\\\"}}"
+            "{{\\"error\\":\\"No material assigned to {safe}\\"}}"
         ) else (
             local mat = {mat_expr}
             if mat == undefined then (
-                "{{\\\\"error\\\\":\\\\"Sub-material index {sub_material_index} not found on {safe}\\\\"}}"
+                "{{\\"error\\":\\"Sub-material index {sub_material_index} not found on {safe}\\"}}"
             ) else (
                 local includeValues = {include_vals}
                 local maxSlots = {max_slots}
@@ -829,30 +819,30 @@ def get_material_slots(
                 )
 
                 local result = "{{"
-                result += "\\\\"name\\\\":\\\\"" + (jsonEscape mat.name) + "\\\\","
-                result += "\\\\"class\\\\":\\\\"" + (jsonEscape ((classOf mat) as string)) + "\\\\","
-                result += "\\\\"subMaterialIndex\\\\":" + (subIdx as string) + ","
-                result += "\\\\"inspectedCount\\\\":" + (scanned as string) + ","
-                result += "\\\\"counts\\\\":{{"
-                result += "\\\\"map\\\\":" + (mapNames.count as string) + ","
-                result += "\\\\"color\\\\":" + (colorNames.count as string) + ","
-                result += "\\\\"numeric\\\\":" + (numNames.count as string) + ","
-                result += "\\\\"bool\\\\":" + (boolNames.count as string) + ","
-                result += "\\\\"other\\\\":" + (otherNames.count as string)
+                result += "\\"name\\":\\"" + (esc mat.name) + "\\","
+                result += "\\"class\\":\\"" + (esc ((classOf mat) as string)) + "\\","
+                result += "\\"subMaterialIndex\\":" + (subIdx as string) + ","
+                result += "\\"inspectedCount\\":" + (scanned as string) + ","
+                result += "\\"counts\\":{{"
+                result += "\\"map\\":" + (mapNames.count as string) + ","
+                result += "\\"color\\":" + (colorNames.count as string) + ","
+                result += "\\"numeric\\":" + (numNames.count as string) + ","
+                result += "\\"bool\\":" + (boolNames.count as string) + ","
+                result += "\\"other\\":" + (otherNames.count as string)
                 result += "}},"
 
                 if includeValues then (
-                    result += "\\\\"mapSlots\\\\":" + (toJsonPairArray mapNames mapVals) + ","
-                    result += "\\\\"colorSlots\\\\":" + (toJsonPairArray colorNames colorVals) + ","
-                    result += "\\\\"numericSlots\\\\":" + (toJsonPairArray numNames numVals) + ","
-                    result += "\\\\"boolSlots\\\\":" + (toJsonPairArray boolNames boolVals) + ","
-                    result += "\\\\"otherSlots\\\\":" + (toJsonPairArray otherNames otherVals)
+                    result += "\\"mapSlots\\":" + (toJsonPairArray mapNames mapVals) + ","
+                    result += "\\"colorSlots\\":" + (toJsonPairArray colorNames colorVals) + ","
+                    result += "\\"numericSlots\\":" + (toJsonPairArray numNames numVals) + ","
+                    result += "\\"boolSlots\\":" + (toJsonPairArray boolNames boolVals) + ","
+                    result += "\\"otherSlots\\":" + (toJsonPairArray otherNames otherVals)
                 ) else (
-                    result += "\\\\"mapSlots\\\\":" + (toJsonNameArray mapNames) + ","
-                    result += "\\\\"colorSlots\\\\":" + (toJsonNameArray colorNames) + ","
-                    result += "\\\\"numericSlots\\\\":" + (toJsonNameArray numNames) + ","
-                    result += "\\\\"boolSlots\\\\":" + (toJsonNameArray boolNames) + ","
-                    result += "\\\\"otherSlots\\\\":" + (toJsonNameArray otherNames)
+                    result += "\\"mapSlots\\":" + (toJsonNameArray mapNames) + ","
+                    result += "\\"colorSlots\\":" + (toJsonNameArray colorNames) + ","
+                    result += "\\"numericSlots\\":" + (toJsonNameArray numNames) + ","
+                    result += "\\"boolSlots\\":" + (toJsonNameArray boolNames) + ","
+                    result += "\\"otherSlots\\":" + (toJsonNameArray otherNames)
                 )
 
                 result += "}}"
@@ -941,7 +931,7 @@ def create_texture_map(
     Returns:
         Confirmation with the global variable name to reference this map.
     """
-    safe_map_name = _safe_name(map_name)
+    safe_map_name = safe_string(map_name)
     name_param = f' name:"{safe_map_name}"' if map_name else ""
 
     # Generate global var name if not provided
@@ -957,7 +947,7 @@ def create_texture_map(
     if properties:
         lines = []
         for prop, val in properties.items():
-            safe_prop = _safe_name(prop)
+            safe_prop = safe_string(prop)
             lines.append(
                 f'try (global {global_var} ; {global_var}.{safe_prop} = {val}; '
                 f'append okList "{safe_prop}") '
@@ -1013,7 +1003,7 @@ def set_texture_map_properties(
     """
     lines = []
     for prop, val in properties.items():
-        safe_prop = _safe_name(prop)
+        safe_prop = safe_string(prop)
         lines.append(
             f'try ({global_var}.{safe_prop} = {val}; append okList "{safe_prop}") '
             f'catch (append errList ("{safe_prop}: " + (getCurrentException())))'
@@ -1078,8 +1068,8 @@ def set_sub_material(
     Returns:
         Confirmation of the sub-material assignment.
     """
-    safe = _safe_name(name)
-    safe_mat_name = _safe_name(material_name)
+    safe = safe_string(name)
+    safe_mat_name = safe_string(material_name)
     name_param = f' name:"{safe_mat_name}"' if material_name else ""
 
     if source_index > 0:
@@ -1157,14 +1147,14 @@ def write_osl_shader(
 
     # Escape the OSL code for MAXScript string embedding
     safe_osl = osl_code.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
-    safe_shader_name = _safe_name(shader_name)
+    safe_shader_name = safe_string(shader_name)
 
     # Build property-setting lines
     prop_lines = ""
     if properties:
         lines = []
         for prop, val in properties.items():
-            safe_prop = _safe_name(prop)
+            safe_prop = safe_string(prop)
             lines.append(
                 f'try (global {global_var} ; {global_var}.{safe_prop} = {val}; '
                 f'append okList "{safe_prop}") '

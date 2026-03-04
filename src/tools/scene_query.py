@@ -7,10 +7,7 @@ object iteration.
 
 from typing import Optional
 from ..server import mcp, client
-
-
-def _safe_name(name: str) -> str:
-    return name.replace("\\", "\\\\").replace('"', '\\"')
+from src.helpers.maxscript import safe_string
 
 
 @mcp.tool()
@@ -42,7 +39,7 @@ def find_class_instances(
         JSON with found instances, counts, and which scene nodes reference them.
     """
     if superclass:
-        safe_sc = _safe_name(superclass)
+        safe_sc = safe_string(superclass)
         maxscript = f"""(
             local result = "{{\\\"superclass\\\": \\\"" + "{safe_sc}" + "\\\", \\\"classes\\\": ["
             local scls = execute "{safe_sc}"
@@ -83,7 +80,7 @@ def find_class_instances(
             )
         )"""
     else:
-        safe_cls = _safe_name(class_name)
+        safe_cls = safe_string(class_name)
         maxscript = f"""(
             local cls = execute "{safe_cls}"
             if cls == undefined then (
@@ -130,7 +127,7 @@ def get_instances(name: str) -> str:
     Returns:
         JSON with the instance group: all objects sharing the same base object.
     """
-    safe = _safe_name(name)
+    safe = safe_string(name)
     maxscript = f"""(
         local obj = getNodeByName "{safe}"
         if obj == undefined then (
@@ -176,7 +173,7 @@ def get_dependencies(
     Returns:
         JSON with dependency information grouped by class.
     """
-    safe = _safe_name(name)
+    safe = safe_string(name)
     maxscript = f"""(
         local obj = getNodeByName "{safe}"
         if obj == undefined then (
@@ -230,11 +227,11 @@ def find_objects_by_property(
     Returns:
         JSON list of matching objects.
     """
-    safe_prop = _safe_name(property_name)
-    safe_val = _safe_name(property_value)
+    safe_prop = safe_string(property_name)
+    safe_val = safe_string(property_value)
     class_cond = ""
     if class_filter:
-        safe_class = _safe_name(class_filter)
+        safe_class = safe_string(class_filter)
         class_cond = f'and (matchPattern ((classof obj) as string) pattern:"*{safe_class}*")'
 
     if property_value:

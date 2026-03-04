@@ -10,7 +10,7 @@ mcp = FastMCP("3dsmax-mcp")
 client = MaxClient()
 
 # Import tool modules to trigger @mcp.tool() registration
-from .tools import execute, scene, objects, materials, render, viewport, identify, transform, hierarchy, modifiers, selection, clone, scene_manage, visibility, inspect, build, grid, floor_plan, scene_query, effects, material_ops, state_sets, data_channel, wire_params, controllers, scattering  # noqa: E402, F401
+from .tools import execute, scene, objects, materials, render, viewport, identify, transform, hierarchy, modifiers, selection, clone, scene_manage, visibility, inspect, build, grid, floor_plan, scene_query, effects, material_ops, state_sets, data_channel, wire_params, controllers, scattering, capabilities, snapshots, verification, session_context, bridge, workflows  # noqa: E402, F401
 
 
 SKILL_RESOURCE_URI = "resource://3dsmax-mcp/skill"
@@ -43,8 +43,18 @@ def max_assistant() -> str:
     """Default assistant instructions for MCP clients like Claude Desktop."""
     base_rules = (
         "You are a 3ds Max assistant connected via MCP.\n"
+        "Use get_bridge_status if connection health or host state is uncertain.\n"
+        "Start with get_session_context for fast live context when the scene state matters.\n"
+        "Use inspect_active_target when you need the most relevant current target without manually deciding between selection and scene context.\n"
+        "Use get_scene_snapshot / get_selection_snapshot when you need a smaller follow-up probe.\n"
         "Prefer dedicated tools over raw MAXScript when available.\n"
         "Inspect objects/properties before edits.\n"
+        "After any meaningful mutation, verify with a verification tool or get_scene_delta.\n"
+        "Prefer verified workflow tools when available so action and verification stay coupled.\n"
+        "Use set_material_verified and add_modifier_verified for common iterative edits.\n"
+        "Use transform_object_verified and set_modifier_state_verified for geometry iteration without manual readback stitching.\n"
+        "Use set_object_property_verified for direct object-level edits when no narrower verified wrapper exists.\n"
+        "Work in natural language with the user, but keep tool usage structured and explicit.\n"
         "DO NOT render unless the user asks.\n"
         "Use capture_viewport/capture_model for fast viewport context. capture_screen is fullscreen and requires enabled=True.\n"
         f"Reference resource: {SKILL_RESOURCE_URI}\n"

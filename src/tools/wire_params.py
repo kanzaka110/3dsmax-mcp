@@ -7,14 +7,7 @@ modifier's angle). These tools expose wiring as first-class operations.
 
 from typing import Optional
 from ..server import mcp, client
-
-
-def _safe(s: str) -> str:
-    return s.replace("\\", "\\\\").replace('"', '\\"')
-
-
-def _safe_name(s: str) -> str:
-    return s.replace("\\", "\\\\").replace('"', '\\"').replace("'", "\\'")
+from src.helpers.maxscript import safe_string, safe_name
 
 
 @mcp.tool()
@@ -44,12 +37,12 @@ def list_wireable_params(
         "modifiers[#Bend][#angle]" — bend modifier angle
         "position.controller[#X_Position]" — X position track
     """
-    safe = _safe(name)
+    safe = safe_string(name)
     d = min(max(depth, 1), 5)
 
     filter_check = ""
     if filter:
-        safe_filter = _safe(filter.lower())
+        safe_filter = safe_string(filter.lower())
         filter_check = f'local filterStr = "{safe_filter}"'
 
     maxscript = f"""(
@@ -139,11 +132,11 @@ def wire_params(
     if two_way and not reverse_expression:
         return "reverse_expression is required when two_way=True"
 
-    safe_src_obj = _safe(source_object)
-    safe_tgt_obj = _safe(target_object)
-    safe_src_param = _safe(source_param)
-    safe_tgt_param = _safe(target_param)
-    safe_expr = _safe(expression)
+    safe_src_obj = safe_string(source_object)
+    safe_tgt_obj = safe_string(target_object)
+    safe_src_param = safe_string(source_param)
+    safe_tgt_param = safe_string(target_param)
+    safe_expr = safe_string(expression)
 
     # If path starts with "[", no dot separator needed (e.g. $'Obj'[#transform])
     src_sep = "" if safe_src_param.startswith("[") else "."
@@ -161,7 +154,7 @@ def wire_params(
     ]
 
     if two_way:
-        safe_rev_expr = _safe(reverse_expression)
+        safe_rev_expr = safe_string(reverse_expression)
         lines.append(f'paramWire.connect2way srcSA tgtSA "{safe_expr}" "{safe_rev_expr}"')
         lines.append(f'"Wired 2-way: " + srcObj.name + ".{safe_src_param} <-> " + tgtObj.name + ".{safe_tgt_param} (fwd: {safe_expr}, rev: {safe_rev_expr})"')
     else:
@@ -188,7 +181,7 @@ def get_wired_params(name: str) -> str:
         JSON array of {param_path, controller_class, num_wires, expressions}
         for each wired parameter.
     """
-    safe = _safe(name)
+    safe = safe_string(name)
     maxscript = f"""(
     local obj = getNodeByName "{safe}"
     if obj == undefined do return "Object not found: {safe}"
@@ -265,8 +258,8 @@ def unwire_params(
     Returns:
         Confirmation that the wire was removed.
     """
-    safe_obj = _safe(object_name)
-    safe_param = _safe(param_path)
+    safe_obj = safe_string(object_name)
+    safe_param = safe_string(param_path)
     param_sep = "" if safe_param.startswith("[") else "."
     maxscript = f"""(
     local obj = getNodeByName "{safe_obj}"

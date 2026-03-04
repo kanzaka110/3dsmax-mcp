@@ -1,9 +1,6 @@
 from typing import Optional
 from ..server import mcp, client
-
-
-def _safe_name(name: str) -> str:
-    return name.replace("\\", "\\\\").replace('"', '\\"')
+from src.helpers.maxscript import safe_string
 
 
 @mcp.tool()
@@ -26,7 +23,7 @@ def clone_objects(
 
     mode_map = {"copy": "#copy", "instance": "#instance", "reference": "#reference"}
     ms_mode = mode_map.get(mode, "#copy")
-    name_arr = "#(" + ", ".join(f'"{_safe_name(n)}"' for n in names) + ")"
+    name_arr = "#(" + ", ".join(f'"{safe_string(n)}"' for n in names) + ")"
 
     maxscript = f"""(
         local nameList = {name_arr}

@@ -2,6 +2,7 @@ import json
 import socket
 import time
 from typing import Any, Optional
+from uuid import uuid4
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -29,11 +30,15 @@ class MaxClient:
     ) -> dict[str, Any]:
         """Send a command to 3ds Max via TCP and return the parsed JSON response."""
         effective_timeout = timeout or self.timeout
+        request_id = uuid4().hex
+        started_at = time.perf_counter()
 
         request = json.dumps({
             "command": command,
             "type": cmd_type,
-        })
+            "requestId": request_id,
+            "protocolVersion": 2,
+        }, ensure_ascii=True)
 
         # Create socket and connect
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -55,12 +60,30 @@ class MaxClient:
                 if b"\n" in response_data:
                     break
 
-            response_str = response_data.decode("utf-8").strip()
+            # Strip UTF-8 BOM if present
+            if response_data.startswith(b'\xef\xbb\xbf'):
+                response_data = response_data[3:]
+            response_str = response_data.decode("utf-8", errors="replace").strip()
 
             if not response_str:
                 raise RuntimeError("Empty response from 3ds Max")
 
             response = json.loads(response_str)
+            response_request_id = response.get("requestId")
+            if response_request_id not in (None, "", request_id):
+                raise RuntimeError(
+                    f"Mismatched response requestId: expected {request_id}, got {response_request_id}"
+                )
+
+            response["requestId"] = request_id
+            meta = response.get("meta")
+            if not isinstance(meta, dict):
+                meta = {}
+                response["meta"] = meta
+            meta.setdefault(
+                "clientRoundTripMs",
+                round((time.perf_counter() - started_at) * 1000.0, 3),
+            )
 
             if not response.get("success", False):
                 error_msg = response.get("error", "Unknown error")

@@ -1,9 +1,6 @@
 from typing import Optional
 from ..server import mcp, client
-
-
-def _safe_name(name: str) -> str:
-    return name.replace("\\", "\\\\").replace('"', '\\"')
+from src.helpers.maxscript import safe_string
 
 
 @mcp.tool()
@@ -32,7 +29,7 @@ def select_objects(
             result
         )"""
     elif names:
-        name_arr = "#(" + ", ".join(f'"{_safe_name(n)}"' for n in names) + ")"
+        name_arr = "#(" + ", ".join(f'"{safe_string(n)}"' for n in names) + ")"
         maxscript = f"""(
             clearSelection()
             local nameList = {name_arr}
@@ -47,7 +44,7 @@ def select_objects(
             "Selected " + (found.count as string) + " of " + (nameList.count as string) + " objects"
         )"""
     elif pattern:
-        safe_pat = _safe_name(pattern)
+        safe_pat = safe_string(pattern)
         maxscript = f"""(
             clearSelection()
             local matched = for obj in objects where matchPattern obj.name pattern:"{safe_pat}" collect obj

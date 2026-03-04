@@ -11,10 +11,7 @@ from typing import Any
 
 from ..server import mcp, client
 from ..helpers.construction import grid_position, circular_position
-
-
-def _safe_name(name: str) -> str:
-    return name.replace("\\", "\\\\").replace('"', '\\"')
+from src.helpers.maxscript import safe_string
 
 
 def _create_at(
@@ -30,7 +27,7 @@ def _create_at(
     For Box: pivot at centre-bottom, so we shift pos Z down by h/2.
     For Sphere/Cylinder: similar centre logic.
     """
-    safe = _safe_name(name)
+    safe = safe_string(name)
     t = obj_type.lower()
 
     if t == "box":

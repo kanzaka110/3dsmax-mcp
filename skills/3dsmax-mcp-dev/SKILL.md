@@ -1,386 +1,265 @@
 ---
 name: 3dsmax-mcp-dev
-description: Practical rules, tool choices, and common failure modes when developing 3dsmax-mcp tools (Python MCP + MAXScript bridge). Use this when adding new tools, writing bridge MAXScript, or debugging TCP/JSON issues.
+description: Practical rules, tool choices, workflow patterns, and bridge failure modes for developing 3dsmax-mcp (Python MCP + MAXScript TCP listener). Use when adding or debugging tools, writing MAXScript bridge code, improving AI-to-3ds-Max interaction, or validating live transport/JSON behavior.
 ---
 
-# 3dsmax-mcp Development Guide (Clean Version)
+# 3dsmax-mcp Development Guide
 
-This guide is the **single source of truth** for building and debugging 3dsmax-mcp tools.
+This is the working guide for extending and debugging `3dsmax-mcp`.
 
----
+Keep it lean:
+- prefer strong primitives over UI-surface mirroring
+- prefer low-token readback before deep inspection
+- prefer dedicated tools over raw MAXScript
+- prefer action + verification loops over optimistic success strings
 
-## 1) Hard Rules
+## Core Rules
 
 ### Materials
-- **Never use `execute_maxscript` for material work.**
-- Always use:
+- Never use `execute_maxscript` for normal material work.
+- Use:
   - `assign_material`
   - `set_material_property`
   - `set_material_properties`
-  - `set_sub_material` (Multi/Sub slot management)
+  - `get_material_slots`
+  - `set_sub_material`
+- Use raw MAXScript only for material-adjacent gaps such as file I/O, unusual texture-map creation, or unsupported shader wiring.
 
-Only use `execute_maxscript` for material-adjacent tasks that have **no dedicated tool**, such as:
-- file I/O
-- creating texture map objects (e.g. `OSLMap`, `Bitmaptexture`, `ai_bump2d`)
-- assigning sub-materials inside a Multi/Sub when no tool covers it
+### Rendering and capture
+- Do not render unless the user explicitly asks.
+- Avoid screenshots by default.
+- Prefer:
+  - `capture_viewport`
+  - `capture_model`
+- Use `capture_screen enabled:true` only for full UI/fullscreen needs.
 
-### Rendering and viewport
-- **Do not render unless user explicitly asks for it.**
-- **Avoid screenshots by default.** Only capture when:
-  - The user explicitly asks to see the scene
-  - Visual verification is truly necessary (e.g. debugging a visual issue you can't diagnose otherwise)
-- When capturing: prefer `capture_viewport` or `capture_model`. Only use `capture_screen enabled:true` for full UI/fullscreen needs.
+### Verification
+- Do not trust mutation success strings on their own.
+- After meaningful changes, verify with:
+  - `get_scene_delta`
+  - `inspect_object`
+  - `get_selection_snapshot`
+  - `get_material_slots`
+  - specific verify tools such as `verify_scatter_output`
 
----
+## Default Interaction Pattern
 
-## 2) Always Inspect Before You Change Anything
+Use this order unless there is a clear reason not to:
 
-Never guess:
-- property names
-- class names
-- enum values
-- parameter types
+1. Check bridge/session context
+   - `get_bridge_status`
+   - `get_session_context`
+   - `inspect_active_target`
+2. Inspect the target
+   - `inspect_object`
+   - `inspect_properties`
+   - `inspect_modifier_properties`
+   - `get_material_slots`
+3. Mutate with a dedicated tool
+4. Verify with delta + readback
 
-Use these first:
-- `inspect_object` → quick overview (class, transform, modifiers, material, mesh stats)
-- `inspect_properties target="baseobject"|"material"|"modifier"` → full typed properties
-- `inspect_modifier_properties` → modifier params specifically
-- `get_object_properties` → detailed object state (transform/material/modifiers)
+When possible, prefer the verified orchestration tools in `src/tools/workflows.py`:
+- `create_object_verified`
+- `assign_material_verified`
+- `set_material_verified`
+- `add_modifier_verified`
+- `transform_object_verified`
+- `set_modifier_state_verified`
+- `set_object_property_verified`
 
-Fallback inspection commands (MAXScript) when needed:
-- `showInterfaces obj`
-- `showMethods obj`
-- `getPropNames obj`
-- `classOf obj`, `superClassOf obj`
-- `showProperties obj.modifiers[i]`
-- `showProperties obj.material`
+These wrappers are the right place for common action+verify flows. Do not create one file per wrapper; keep orchestration consolidated.
 
----
+## Tool Selection
 
-## 3) Tool Selection Cheat Sheet
+### Live context
+- Bridge health: `get_bridge_status`
+- One-shot live context: `get_session_context`
+- Context-aware current target: `inspect_active_target`
+- Cheap scene summary: `get_scene_snapshot`
+- Cheap selection summary: `get_selection_snapshot`
+- Change tracking: `get_scene_delta`
 
-### Understand an object
-- Overview → `inspect_object`
-- Typed properties → `inspect_properties`
-- Modifier params → `inspect_modifier_properties`
-- Full object details → `get_object_properties`
+### Object inspection
+- Rich overview: `inspect_object`
+- Typed property dump: `inspect_properties`
+- Modifier-specific dump: `inspect_modifier_properties`
+- Compact object details: `get_object_properties`
 
-### Find things in the scene
-- List/filter objects → `get_scene_info`
-- List assigned materials → `get_materials`
-- Enumerate scene-wide class instances → `find_class_instances` (use `superclass`)
-- Instancing status → `get_instances`
-- Find objects by property → `find_objects_by_property`
-- Dependencies graph → `get_dependencies`
-- Fog/volume/lens effects → `get_effects`
-- State Sets / cameras → `get_state_sets`, `get_camera_sequence`
+### Scene queries
+- Filter/list objects: `get_scene_info`
+- Find by property: `find_objects_by_property`
+- Enumerate instances/classes: `get_instances`, `find_class_instances`
+- Dependency tracing: `get_dependencies`
+- Effects: `get_effects`
+- State Sets / cameras: `get_state_sets`, `get_camera_sequence`
 
-### Materials
-- Create + assign → `assign_material`
-- Set one property → `set_material_property`
-- Set many properties → `set_material_properties`
-- Fast slot discovery (low-token, default map-only + bitmap class hints) → `get_material_slots`
-- Multi/Sub slots → `set_sub_material`
-- Inspect material → `inspect_properties target="material"`
+### Materials and texture maps
+- Create + assign: `assign_material`
+- Update one property: `set_material_property`
+- Update many properties: `set_material_properties`
+- Inspect practical slots: `get_material_slots`
+- Multi/Sub: `set_sub_material`
+- Texture maps: `create_texture_map`, `set_texture_map_properties`, `write_osl_shader`
+- Folder-driven material creation: `create_material_from_textures`
 
-### Texture maps
-- Auto PBR from folder → `create_material_from_textures`
-- Create map → `create_texture_map` (stored as global var)
-- Set map params → `set_texture_map_properties`
-- Write OSL + create map → `write_osl_shader`
-- Wire map into material slot → `set_material_property value="{global_var_name}"`
+### Object and modifier edits
+- Create/delete objects: `create_object`, `delete_objects`
+- Direct property set: `set_object_property`
+- Transform: `transform_object`
+- Modifiers: `add_modifier`, `remove_modifier`, `set_modifier_state`
+- Collapse stack: `collapse_modifier_stack`
+- Batch modifier edits: `batch_modify`
 
-### Modify scene objects
-- Set object prop → `set_object_property`
-- Add/remove modifier → `add_modifier` / `remove_modifier`
-- Enable/disable modifier → `set_modifier_state`
-- Scene-wide modifier edits → `batch_modify`
-- Collapse stack → `collapse_modifier_stack`
-- De-instance modifier → `make_modifier_unique`
-- Transform → `transform_object`
-- Effects → `toggle_effect` / `delete_effect`
+### Organization
+- Select: `select_objects`
+- Parenting: `set_parent`
+- Visibility/freeze: `set_visibility`
+- Clone/instance: `clone_objects`
+- Batch rename: `batch_rename_objects`
 
-### Organize
-- Parent/unparent → `set_parent`
-- Show/hide/freeze → `set_visibility`
-- Select → `select_objects`
-- Clone/instance → `clone_objects`
-- Batch rename → `batch_rename_objects`
+### Procedural / specialty systems
+- Data Channel: `add_data_channel`, `inspect_data_channel`, `set_data_channel_operator`, `add_dc_script_operator`
+- Wires: `list_wireable_params`, `wire_params`, `get_wired_params`, `unwire_params`
+- Controllers: `assign_controller`, `inspect_controller`, `add_controller_target`, `set_controller_props`
+- Scatter: prefer dedicated tools and verification; do not improvise large manual placement loops first
 
-### Build geometry
-- Primitives → `create_object`
-- Structures → `build_structure`
-- Grid placement → `place_grid_array` / `place_on_grid`
-- Circular placement → `place_circle`
-- Floor plans → `build_floor_plan`
+## When `execute_maxscript` Is Appropriate
 
-### See the scene
-- Viewport only (safe default) → `capture_viewport` or `capture_model`
-- Full UI panels / fullscreen → `capture_screen enabled:true`
-- Render → `render_scene`
-- Identify visually → `isolate_and_capture_selected`
-
----
-
-### Animation controllers
-- Assign controller → `assign_controller`
-- Inspect controller → `inspect_controller`
-- Add target/variable → `add_controller_target`
-- Update script/props → `set_controller_props`
-
----
-
-## 4) When `execute_maxscript` Is Allowed
-
-Use it only when no dedicated tool exists, such as:
-- animation keyframing
+Use `execute_maxscript` only when no dedicated tool exists or when probing the host interactively:
+- quick experiments
+- unsupported host features
 - custom scripted operations
-- render settings / environment setup
-- specialized Max features not covered by tools
+- animation keyframing gaps
+- render/environment settings not yet wrapped
 
----
+Do not use it as the default workflow surface when a proper tool exists.
 
-## 5) Architecture (Bridge + Protocol)
+## Bridge and Protocol
 
-- MCP server: **Python (FastMCP)**
-- 3ds Max side: **MAXScript TCP listener**
+Current architecture:
+- Python MCP server: `FastMCP`
+- 3ds Max host side: MAXScript TCP listener in `maxscript/mcp_server.ms`
 - Address: `127.0.0.1:8765`
-- Protocol: **JSON + newline delimiter**, one request/response per connection
-- Listener design: `.NET TcpListener` + timer polling (50ms) to stay non-blocking
+- Transport: JSON + newline delimiter, one request/response per connection
+- Listener model: `.NET TcpListener` + timer polling
 
----
+Current live pattern:
+- protocol v2 supports `requestId` and response `meta`
+- `get_bridge_status` falls back to legacy protocol behavior when needed
 
-## 6) Adding a New Tool (Python)
+When editing the bridge:
+- Python-side transport changes need MCP server restart
+- MAXScript listener changes need reloading `mcp_server.ms` inside 3ds Max
+- keep compatibility in mind if the Python side may speak to an older listener
 
-1. Create: `src/tools/<name>.py`
-2. Import: `from ..server import mcp, client`
-3. Decorate: `@mcp.tool()`
-4. Build MAXScript string
-5. Send it: `client.send_command(maxscript)`
-6. Return: `response.get("result", "")` (or sensible default)
+## Adding or Updating Tools
 
-If the operation can run long (e.g., render), set timeout:
-- `client.send_command(maxscript, timeout=300)`
+For a new primitive tool:
+1. Put it in the relevant domain file under `src/tools/`
+2. Import `mcp` and `client` from `..server`
+3. Build a MAXScript payload carefully
+4. Use `client.send_command(...)`
+5. Return `response.get("result", "")` or structured JSON
+6. Add tests if the logic is non-trivial
 
-After editing tool files, **restart the MCP server** to load changes.
+For a repeated action+verify flow:
+1. Keep the primitive tools where they belong
+2. Add the composed wrapper to `src/tools/workflows.py`
+3. Return both action result and verification payload
 
----
+Do not create a new file for every `_verified` wrapper unless the orchestration file becomes genuinely unwieldy.
 
-## 7) MAXScript Pitfalls (High-Frequency Errors)
+## MAXScript Pitfalls
 
 ### Constructors
-- **Do not use parentheses** after class name when passing keyword params:
-  - ✅ `ai_standard_surface name:"Mat1" metalness:1.0`
-  - ❌ `ai_standard_surface() name:"Mat1" metalness:1.0`
+- Do not use parentheses after class names with keyword params.
+- Correct: `ai_standard_surface name:"Mat1" metalness:1.0`
+- Wrong: `ai_standard_surface() name:"Mat1" metalness:1.0`
+
+### Scope and execution
+- `execute()` runs in global scope.
+- Do not rely on local variables inside dynamically constructed `execute(...)` strings unless the string explicitly addresses the node/property path.
 
 ### Case-insensitivity
-- MAXScript is case-insensitive. `R` and `r` are the same variable.
-- Use descriptive unique names (`ringRadius`, `tubeRadius`, etc.).
+- MAXScript is case-insensitive.
+- Avoid ambiguous short variable names.
 
-### Scope
-- `execute()` runs in global scope.
-- **No `local` at top level**; use locals only inside functions/blocks.
+### String / JSON escaping
+- Escape user-provided strings before embedding in MAXScript using shared helpers from `src.helpers.maxscript`.
+- For JSON emitted by MAXScript, use `MCP_Server.escapeJsonString`.
+- Do not hand-roll escaping in multiple incompatible ways.
 
-### View types
-- Use `#view_persp_user` (not `#view_persp`)
-- Examples: `#view_left`, `#view_front`, `#view_top`, `#view_iso_user`, `#view_persp_user`
-
-### No built-in join
-MAXScript has no `stringJoin`. Use manual concatenation loops.
-
-### Reserved names / keywords
-- Avoid global identifiers like: `output`, `result`, `bmp`, `foliage`, `floor`, `osl`, `OSLMap`
-- `by` is a reserved keyword (cannot be a var or parameter name)
-
-### Noise modifier naming
-- `Noise` is the **texture map**, not the modifier.
-- Modifier class is `Noisemodifier`.
-
-### Temp path mismatch
-- `(getDir #temp)` is Max’s temp, not OS temp.
-- Use `.NET Path.GetTempPath()` to match Python temp.
-
-### String escaping + JSON
-- Always escape user strings before embedding in MAXScript (use your project’s safe-name helper).
-- Build JSON manually; always escape strings using `escapeJsonString()` from `mcp_server.ms`.
-
-### Python f-strings + braces
-- Double MAXScript braces in Python f-strings: `{{` and `}}`, or use raw strings.
+### Python string building
+- In Python f-strings, double braces for literal MAXScript braces.
+- Raw triple-quoted strings are usually safer for larger MAXScript blocks.
 
 ### .NET strings
-- Convert .NET string to MAXScript string with `str as string` before using `.count` etc.
+- Convert .NET strings to MAXScript strings before using string methods.
 
-### SubAnim keys
-- `numKeys` isn’t available on SubAnim; access controller keys via the actual controller object.
+### Misc host quirks
+- No built-in `stringJoin`; concatenate manually.
+- `Noise` is the texture map; modifier class is `Noisemodifier`.
+- `(getDir #temp)` is Max temp, not OS temp.
+- `#view_persp_user` is the correct perspective view enum.
 
----
+## Domain Notes
 
-## 8) Viewport Capture Rules
+### Materials
+- `get_material_slots` is the practical low-token slot inspector.
+- For material verification, compare slot values before/after. Scene delta only tracks material assignment names, not internal shader parameter edits.
 
-- OSL maps show correctly in viewport only in **High Quality** mode.
-  - Switch via: `actionMan.executeAction -844228238 "40"`
-- Use `completeredraw()` before capturing.
-- **Always frame before capture**:
-  - select target → `max zoomext sel` → capture
-- Avoid `viewport.setTM` for camera placement; it’s unreliable.
+### Modifiers
+- Scene delta is useful for modifier count changes, not for every modifier state/property change.
+- For modifier-state verification, inspect the actual modifier before/after.
 
----
+### Data Channel
+- Object must be Editable Mesh/Poly first.
+- `operator_order` is 0-based.
+- Operators not in the order list do not execute.
+- Composite pipelines need a final `vertex_output`.
+- `TransformElements.transformType` actual values are sequential: `0,1,2,3`.
 
-## 9) Scattering Policy
+### Wire parameters
+- Rotation expressions use radians, not degrees.
+- Paths from `list_wireable_params` starting with `[` need no dot separator.
 
-- If user says “scatter”, default to procedural tools (not manual loop placement).
-- Prefer **tyFlow** over Particle Flow.
-- Built-in Scatter limitations:
-  - Max 2025+ `ScatterGeometry` exists but some arrays are UI-only and not settable via MAXScript.
-  - Legacy Scatter compound object not creatable via MAXScript in Max 2026.
+### Controllers
+- Inspect before assigning.
+- Use `layer=True` to preserve existing controllers.
+- Expression controllers require update after expression changes; wrapped tools handle this.
 
-Fallback when tools fail:
-- Convert distribution surface to mesh (`snapshotAsMesh`)
-- Sample faces, use `meshOp.getFaceCenter`
-- Orient using global `getFaceNormal mesh faceIdx`
-- Instance placement as last resort
+### Scattering
+- Prefer procedural systems over manual placement for “scatter” tasks.
+- Prefer stable adapters and verification over broad UI emulation.
+- Forest-related work may be intentionally deferred; do not assume it is the current priority.
 
----
+## Live Debug / Test Loop
 
-## 10) Scene Organization Rules
+Use this loop when validating changes:
 
-- Prefer **Dummy-based hierarchies** for clean outliner.
-- Don’t create a Dummy on first build of a single object; organize only when you’ll reuse/group.
+1. Run Python tests
+2. Reload MCP server if Python modules changed
+3. Reload `mcp_server.ms` in 3ds Max if listener code changed
+4. Check `get_bridge_status`
+5. Run a small live smoke action
+6. Verify via `get_scene_delta` and inspection
 
-Dummy workflow order:
-1. Create all objects
-2. Compute combined bounding box
-3. Create Dummy
-4. Set Dummy box size to bbox
-5. Position Dummy at bbox center XY
-6. Set pivot to minimum Z
-7. Parent objects into Dummy
+Useful signals:
+- `ConnectionRefusedError`: listener is not running
+- `Empty command` / `Unknown command type`: protocol mismatch
+- syntax errors around JSON literals: escaping/building issue in MAXScript
+- mutation success with no readback change: verification gap, not success
 
----
+## Practical Endgame
 
-## 11) Instancing & Cloning Notes
+Do not try to wrap every parameter in 3ds Max.
 
-- `instance` doesn’t work reliably on group heads.
-- Use `maxOps.cloneNodes ... cloneType:#instance newNodes:&cloneArr`
-- Instancing a Dummy alone does **not** bring children. To instance hierarchies:
-  - clone full descendant list, or
-  - group/attach depending on the situation
+The target architecture is:
+- cheap context tools
+- strong inspection tools
+- narrow typed mutation tools
+- a small verified workflow layer for common production tasks
+- raw MAXScript only for the long tail
 
----
-
-## 12) Splines (Key Properties)
-
-Renderable spline params:
-- `render_displayRenderMesh`
-- `render_displayRenderSettings`
-- `render_thickness`
-
-Not a thing:
-- `render_viewport` (doesn’t exist on SplineShape)
-
----
-
-## 13) Booleans
-
-- Use **`BooleanMod`** (modern), not ProBoolean.
-- Add operands via `bm.BooleanModifier.AppendOperand ...`
-- Make cutters thick enough: operand B must fully intersect operand A.
-
----
-
-## 14) Safety for Destructive Operations
-
-- Prefer **Hold/Fetch** for critical operations:
-  - `holdMaxFile()`
-  - revert with: `fetchMaxFile quiet:true`
-
-For batch ops:
-- wrap with `disableSceneRedraw()` / `enableSceneRedraw()` / `redrawViews()`
-- preserve selection
-- allow abort via `keyboard.escPressed`
-
----
-
-## 15) Data Channel Modifier (DC)
-
-Use tools:
-- Build full graph → `add_data_channel`
-- Inspect → `inspect_data_channel`
-- Change one operator → `set_data_channel_operator`
-- Add script operator → `add_dc_script_operator`
-- Presets → `list_dc_presets` / `load_dc_preset`
-
-Common DC pitfalls:
-- Must be Editable Mesh/Poly → convert first
-- `operator_order` is **0-based**
-- Operators not in order do not execute
-- GeoQuantize before element-level ops to avoid tearing
-- Node references must be actual nodes, not strings
-- **Always include `vertex_output` (output=0, Position)** at the end of TransformElements/ColorElements pipelines — composite operators need it to write results to the mesh
-- **TransformElements.transformType actual values**: 0=Position, 1=Rotation, 2=Scale%, 3=ScaleUniform (sequential, NOT the gapped 0,2,3,4 from Autodesk docs)
-- Use `"blend"` key in operator dicts to set `operator_ops` blend mode: 0=Replace, 1=Add, 2=Subtract, 3=Multiply, 4=Divide, 5=Dot, 6=Cross
-
----
-
-## 16) Wire Parameters
-
-Use tools:
-- Discover params → `list_wireable_params`
-- Create wire → `wire_params`
-- Inspect wires → `get_wired_params`
-- Remove wire → `unwire_params`
-
-Wire tips:
-- You do NOT need to `unwire_params` before re-wiring — `paramWire.connect` overwrites existing wire controllers automatically
-- **Rotation wire expressions use RADIANS**, not degrees — use `distance / radius` not `distance * 360 / (2*pi*r)`
-- Sub-anim paths from `list_wireable_params` start with `[#` — no dot separator needed before brackets
-- MAXScript `pi` constant is available in wire expressions
-
----
-
-## 17) Animation Controllers
-
-Use tools:
-- Assign controller → `assign_controller`
-- Inspect controller → `inspect_controller`
-- Add target/variable → `add_controller_target`
-- Update script/props → `set_controller_props`
-
-Supported controller types:
-- **Script**: `float_script`, `position_script`, `rotation_script`, `scale_script`, `point3_script`
-- **Constraints**: `position_constraint`, `orientation_constraint`, `lookat_constraint`, `path_constraint`, `surface_constraint`, `link_constraint`, `attachment_constraint`
-- **Noise**: `noise_float`, `noise_position`, `noise_rotation`, `noise_scale`
-- **List**: `float_list`, `position_list`, `rotation_list`, `scale_list`
-- **Expression**: `float_expression`, `position_expression`
-- **Other**: `spring`
-
-Controller tips:
-- `dependsOn` in script controllers = self-reference to the owning node (critical for dependency tracking)
-- Script controller `addNode` creates name-independent references (survive object renames)
-- Expression controllers require `ctrl.update()` after `setExpression` — `assign_controller` and `set_controller_props` handle this automatically
-- Link constraint uses `addTarget node frame` (not `appendTarget`)
-- Attachment constraint uses `appendTarget node face`
-- Use `list_wireable_params` to find the correct sub-anim path before assigning controllers
-- Sub-anim paths starting with `[` need no dot separator (same pattern as wire_params)
-- **Use `layer=True`** to add a controller on top of existing (wraps in list controller, preserves current value)
-
-List controller pitfalls:
-- **Cannot assign sub-controllers via local variable** — `listCtrl[2].controller = X()` fails with "Cannot set controller"
-- **Must use `execute("$'name'.pos.controller.Available.controller = ...")`** — the `$` path is required for list sub-anim assignment
-- Position_List sub-anim structure: [1]=default Bezier, [2]=Available (dummy), [numsubs]=Weights — after adding, new ctrl is at numsubs-2
-- `assign_controller` with `layer=True` handles all of this automatically
-
-Noise controller property names:
-- `Noise_Position`: `noise_strength` (Point3, e.g. `[0.3, 0.3, 0.15]`) — NOT `X_Strength`/`Y_Strength`/`Z_Strength`
-- `Noise_Float`: `strength` (float)
-- `Noise_Rotation`: `noise_strength` (Point3, XYZ in degrees)
-- Common props: `seed`, `frequency`, `fractal`, `roughness`, `rampin`, `rampout`, `x_positive`/`y_positive`/`z_positive`
-
----
-
-## 18) Debug / Test Loop
-
-- Use `execute_maxscript` as an “escape hatch” for quick experiments.
-- If you get `ConnectionRefusedError`, the MAXScript listener isn’t running.
-- Confirm comms/temp directory exists to validate bridge readiness.
-- Restart MCP server after Python tool edits.
+If a task is common and failure is costly, add a verified workflow.
+If a task is rare or too broad, keep it in the inspect + primitive-tool layer.
