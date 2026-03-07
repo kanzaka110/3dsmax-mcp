@@ -10,7 +10,7 @@ mcp = FastMCP("3dsmax-mcp")
 client = MaxClient()
 
 # Import tool modules to trigger @mcp.tool() registration
-from .tools import execute, scene, objects, materials, render, viewport, identify, transform, hierarchy, modifiers, selection, clone, scene_manage, visibility, inspect, build, grid, floor_plan, scene_query, effects, material_ops, state_sets, data_channel, wire_params, controllers, scattering, capabilities, snapshots, verification, session_context, bridge, workflows, plugins, plugin_workflows  # noqa: E402, F401
+from .tools import execute, scene, objects, materials, render, viewport, identify, transform, hierarchy, modifiers, selection, clone, scene_manage, visibility, inspect, build, grid, floor_plan, scene_query, effects, material_ops, state_sets, data_channel, wire_params, controllers, scattering, capabilities, snapshots, verification, session_context, bridge, workflows, plugins, plugin_workflows, tyflow, railclone  # noqa: E402, F401
 
 
 SKILL_RESOURCE_URI = "resource://3dsmax-mcp/skill"
@@ -52,7 +52,10 @@ def max_assistant() -> str:
         "Use inspect_plugin_class before making assumptions about a plugin class surface.\n"
         "Use inspect_plugin_instance for live plugin objects when generic object inspection is too shallow.\n"
         "Plugin resources are available under resource://3dsmax-mcp/plugins/{plugin_name}/manifest, /guide, /recipes, and /gotchas.\n"
-        "For tyFlow creation-oriented recipes, prefer create_tyflow_basic_verified or create_tyflow_scatter_from_objects_verified before falling back to raw MAXScript.\n"
+        "For tyFlow maintenance, inspect with get_tyflow_info first; enable include_flow_properties/include_event_properties/include_operator_properties for deep readback before edits.\n"
+        "For tyFlow creation/mutation, use create_tyflow, modify_tyflow_operator, set_tyflow_shape, set_tyflow_physx, and get_tyflow_particles.\n"
+        "For fast onboarding tyFlow recipes, prefer create_tyflow_basic_verified or create_tyflow_scatter_from_objects_verified.\n"
+        "For RailClone maintenance, use get_railclone_style_graph to read the exposed style graph (bases/segments/parameters) before edits.\n"
         "Prefer dedicated tools over raw MAXScript when available.\n"
         "Inspect objects/properties before edits.\n"
         "After any meaningful mutation, verify with a verification tool or get_scene_delta.\n"

@@ -94,6 +94,25 @@ These wrappers are the right place for common action+verify flows. Do not create
   - `resource://3dsmax-mcp/plugins/{plugin_name}/guide`
   - `resource://3dsmax-mcp/plugins/{plugin_name}/recipes`
   - `resource://3dsmax-mcp/plugins/{plugin_name}/gotchas`
+- tyFlow direct tools:
+  - `list_tyflow_operator_types`
+  - `create_tyflow`
+  - `get_tyflow_info`
+    - For maintenance readback, turn on `include_flow_properties`, `include_event_properties`, and `include_operator_properties` with sensible caps.
+  - `add_tyflow_event`
+  - `modify_tyflow_operator`
+  - `set_tyflow_shape`
+  - `set_tyflow_physx`
+  - `add_tyflow_collision`
+  - `connect_tyflow_events`
+  - `remove_tyflow_element`
+  - `get_tyflow_particle_count`
+  - `get_tyflow_particles`
+  - `reset_tyflow_simulation`
+  - `create_tyflow_preset`
+- RailClone direct tools:
+  - `get_railclone_style_graph`
+    - Uses exposed arrays/interfaces to reconstruct style graph data (bases/segments/parameters); not full UI-parity export.
 - Current recipe layer:
   - `create_tyflow_basic_verified`
   - `create_tyflow_scatter_from_objects_verified`

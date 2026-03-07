@@ -92,7 +92,10 @@ class PluginToolTests(unittest.TestCase):
         self.assertEqual(manifest["plugin"], "tyFlow")
         self.assertEqual(manifest["installed"], True)
         self.assertIn("discover_plugin_surface", manifest["recommendedTools"])
-        self.assertIn("Create a flow object and inspect its current graph before editing.", manifest["recipes"])
+        self.assertIn(
+            "For existing flows, start with get_tyflow_info (enable include_flow_properties/include_event_properties/include_operator_properties as needed), then mutate.",
+            manifest["recipes"],
+        )
 
     def test_get_plugin_manifest_returns_json(self) -> None:
         with patch("src.tools.plugins._build_manifest", return_value={"plugin": "tyFlow", "installed": True}):
