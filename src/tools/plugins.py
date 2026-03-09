@@ -17,6 +17,11 @@ PLUGIN_GUIDE_RESOURCE_URI = "resource://3dsmax-mcp/plugins/{plugin_name}/guide"
 PLUGIN_RECIPES_RESOURCE_URI = "resource://3dsmax-mcp/plugins/{plugin_name}/recipes"
 PLUGIN_GOTCHAS_RESOURCE_URI = "resource://3dsmax-mcp/plugins/{plugin_name}/gotchas"
 
+PLUGIN_MANIFEST_VERSION = 1
+PLUGIN_MANIFEST_CLASS_SUMMARY_LIMIT = 12
+PLUGIN_MANIFEST_REFLECTION_SAMPLE_LIMIT = 4
+PLUGIN_MANIFEST_KEY_PROPERTY_LIMIT = 6
+
 
 PLUGIN_OVERLAYS: dict[str, dict[str, Any]] = {
     "tyflow": {
@@ -462,6 +467,177 @@ def _recommended_tools(category: str) -> list[str]:
     return tools
 
 
+def _workflow_mode(category: str) -> str:
+    if category == "modifier":
+        return "modifier_stack"
+    if category in {"material", "texturemap"}:
+        return "shader_graph"
+    if category in {"geometry", "helper", "camera", "light"}:
+        return "scene_object"
+    if category == "mixed":
+        return "mixed"
+    return "generic"
+
+
+def _recommended_sequence(category: str) -> list[str]:
+    sequence = ["discover_plugin_surface", "inspect_plugin_class", "get_plugin_manifest"]
+    if category in {"geometry", "helper", "camera", "light", "mixed", "unknown"}:
+        sequence.append("inspect_plugin_instance")
+    else:
+        sequence.append("inspect_properties")
+    return sequence
+
+
+def _entry_classes_for_manifest(
+    overlay: dict[str, Any] | None,
+    class_names: list[str],
+    scene_instances: dict[str, int],
+) -> list[str]:
+    if overlay:
+        configured = [str(item) for item in overlay.get("entry_classes", [])]
+        return [cls for cls in configured if cls in class_names] or configured
+
+    active = [name for name in class_names if scene_instances.get(name, 0) > 0]
+    return active[:3] or class_names[:3]
+
+
+def _entry_class_details(
+    overlay: dict[str, Any] | None,
+    class_names: list[str],
+    scene_instances: dict[str, int],
+) -> tuple[list[str], list[str], list[str]]:
+    expected = [str(item) for item in overlay.get("entry_classes", [])] if overlay else []
+    detected = [cls for cls in expected if cls in class_names]
+    legacy = _entry_classes_for_manifest(overlay, class_names, scene_instances)
+    if overlay:
+        return legacy, expected, detected
+    return legacy, legacy, legacy
+
+
+def _install_detection(
+    overlay: dict[str, Any] | None,
+    capabilities: dict[str, Any],
+    runtime_detected: bool,
+) -> tuple[bool, dict[str, Any], list[str]]:
+    plugins = capabilities.get("plugins", {})
+    if not isinstance(plugins, dict):
+        plugins = {}
+
+    capability_key = str(overlay.get("capability_key", "")) if overlay else ""
+    capability_detected = None
+    if capability_key:
+        capability_detected = bool(plugins.get(capability_key, False))
+
+    installed = runtime_detected or bool(capability_detected)
+    status = "not_detected"
+    if capability_detected and runtime_detected:
+        status = "confirmed"
+    elif capability_detected:
+        status = "capability_only"
+    elif runtime_detected:
+        status = "runtime_only"
+
+    warnings: list[str] = []
+    if capability_detected and not runtime_detected:
+        warnings.append("Capabilities reported this plugin, but the runtime class scan found no matching classes.")
+    if runtime_detected and capability_key and capability_detected is False:
+        warnings.append("Runtime classes were found even though get_plugin_capabilities did not report this plugin.")
+
+    return installed, {
+        "capabilityKey": capability_key or None,
+        "capabilityDetected": capability_detected,
+        "runtimeDetected": runtime_detected,
+        "status": status,
+        "warnings": list(warnings),
+    }, warnings
+
+
+def _class_summary_payload(
+    item: dict[str, Any],
+    entry_classes: list[str],
+    scene_instances: dict[str, int],
+    sample_reflection: bool,
+) -> dict[str, Any]:
+    name = str(item.get("name", ""))
+    payload = {
+        "superclass": str(item.get("superclass", "")),
+        "category": str(item.get("category", "unknown")),
+        "plugin": item.get("plugin"),
+        "entryPoint": name in entry_classes,
+        "sceneInstances": int(scene_instances.get(name, 0)),
+        "reflectable": None,
+        "keyProperties": [],
+        "warnings": [],
+        "reflection": {
+            "sampled": sample_reflection,
+            "showClassHeader": None,
+            "propertyCount": 0,
+        },
+    }
+    if not sample_reflection:
+        return payload
+
+    parsed = _parse_showclass_lines(_fetch_showclass_lines(name))
+    properties = parsed.get("properties", [])
+    payload["reflectable"] = bool(properties)
+    payload["keyProperties"] = properties[:PLUGIN_MANIFEST_KEY_PROPERTY_LIMIT]
+    payload["warnings"] = list(parsed.get("warnings", []))
+    payload["reflection"] = {
+        "sampled": True,
+        "showClassHeader": parsed.get("header") or None,
+        "propertyCount": len(properties),
+    }
+    return payload
+
+
+def _manifest_class_summaries(
+    classes: list[dict[str, Any]],
+    entry_classes: list[str],
+    scene_instances: dict[str, int],
+) -> tuple[dict[str, Any], bool]:
+    entry_set = set(entry_classes)
+    prioritized = sorted(
+        classes,
+        key=lambda item: (
+            str(item.get("name", "")) not in entry_set,
+            -int(scene_instances.get(str(item.get("name", "")), 0)),
+            str(item.get("name", "")).lower(),
+        ),
+    )
+    summary_slice = prioritized[:PLUGIN_MANIFEST_CLASS_SUMMARY_LIMIT]
+    reflection_names = {
+        str(item.get("name", ""))
+        for item in summary_slice[:PLUGIN_MANIFEST_REFLECTION_SAMPLE_LIMIT]
+    }
+    summaries: dict[str, Any] = {}
+    for item in summary_slice:
+        name = str(item.get("name", ""))
+        summaries[name] = _class_summary_payload(
+            item,
+            entry_classes=entry_classes,
+            scene_instances=scene_instances,
+            sample_reflection=name in reflection_names,
+        )
+    return summaries, len(prioritized) > len(summary_slice)
+
+
+def _primary_plugin_source(plugin_sources: list[dict[str, str]]) -> tuple[str | None, str | None]:
+    if not plugin_sources:
+        return None, None
+
+    primary = plugin_sources[0]
+    source_kind = str(primary.get("source", "object"))
+    if source_kind == "class":
+        reason = "Detected from the object's runtime class."
+    elif source_kind == "baseObject":
+        reason = "Detected from the object's base object class."
+    elif source_kind == "modifier":
+        reason = "Detected from the highest-priority plugin modifier on the object."
+    else:
+        reason = "Detected from the object's assigned material."
+    return primary.get("plugin"), reason
+
+
 def _plugin_guide_markdown(plugin_name: str) -> str:
     manifest = _build_manifest(plugin_name)
     plugin = manifest.get("plugin", plugin_name)
@@ -469,6 +645,7 @@ def _plugin_guide_markdown(plugin_name: str) -> str:
         f"# {plugin}",
         "",
         f"- Installed: `{manifest.get('installed', False)}`",
+        f"- Detection: `{manifest.get('installation', {}).get('status', 'unknown')}`",
         f"- Category mix: `{manifest.get('category', 'unknown')}`",
         f"- Related class count: `{manifest.get('classCount', 0)}`",
         "",
@@ -497,6 +674,13 @@ def _plugin_guide_markdown(plugin_name: str) -> str:
         lines.extend([f"- {item}" for item in gotchas])
     else:
         lines.append("- No curated gotchas yet.")
+
+    lines.extend(["", "## Warnings"])
+    warnings = manifest.get("warnings", [])
+    if warnings:
+        lines.extend([f"- {item}" for item in warnings])
+    else:
+        lines.append("- No current warnings.")
 
     lines.extend(["", "## Related Classes"])
     related_classes = manifest.get("relatedClasses", [])
@@ -539,50 +723,87 @@ def _build_manifest(plugin_name: str) -> dict[str, Any]:
     capabilities = _load_json(get_plugin_capabilities(), {})
 
     display_name = overlay["name"] if overlay else plugin_name.strip()
-    installed = False
-    if overlay and overlay.get("capability_key"):
-        installed = bool(capabilities.get("plugins", {}).get(str(overlay["capability_key"]), False))
-    elif filtered:
-        installed = True
-
     class_names = [str(item.get("name", "")) for item in filtered]
-    scene_instances = _get_scene_instance_counts(class_names[:20])
+    scene_instance_count_limit = 20
+    scene_instances = _get_scene_instance_counts(class_names[:scene_instance_count_limit])
     categories = _category_summary(filtered)
     category = _category_kind(filtered)
+    families = sorted(categories.keys())
+    installed, installation, warnings = _install_detection(overlay, capabilities, bool(filtered))
     recommended_tools = _recommended_tools(category)
     if overlay:
         for tool_name in overlay.get("workflow_tools", []):
             if tool_name not in recommended_tools:
                 recommended_tools.append(tool_name)
 
+    entry_classes, entry_classes_expected, entry_classes_detected = _entry_class_details(overlay, class_names, scene_instances)
     if overlay:
-        entry_classes = [cls for cls in overlay.get("entry_classes", []) if cls in class_names] or list(overlay.get("entry_classes", []))
         aliases = list(overlay.get("aliases", []))
         recipes = list(overlay.get("recipes", []))
         gotchas = list(overlay.get("gotchas", []))
     else:
-        entry_classes = class_names[:3]
-        aliases = [plugin_name]
+        aliases = [plugin_name] if plugin_name else []
         recipes = []
         gotchas = ["Generic manifest only; no curated overlay exists for this plugin yet."]
+        warnings.append("No curated overlay exists for this plugin; guidance is runtime-derived only.")
+
+    if not filtered:
+        warnings.append("No related runtime classes were found for this plugin filter.")
+    if truncated:
+        warnings.append("Runtime class scan hit the class limit; the related class list is incomplete.")
+    scene_instances_truncated = len(class_names) > scene_instance_count_limit
+    if scene_instances_truncated:
+        warnings.append("Scene instance counts were sampled for the first 20 related classes only.")
+
+    classes_map, class_summaries_truncated = _manifest_class_summaries(filtered, entry_classes, scene_instances)
+    active_class_names = [name for name in class_names if scene_instances.get(name, 0) > 0]
+    total_scene_instances = sum(int(value) for value in scene_instances.values())
 
     return {
         "plugin": display_name,
+        "manifestVersion": PLUGIN_MANIFEST_VERSION,
         "installed": installed,
         "aliases": aliases,
+        "families": families,
         "entryClasses": entry_classes,
+        "entryClassesExpected": entry_classes_expected,
+        "entryClassesDetected": entry_classes_detected,
         "relatedClasses": class_names,
         "classCount": len(filtered),
         "truncated": truncated,
+        "classes": classes_map,
+        "classSummariesTruncated": class_summaries_truncated,
         "category": category,
         "categoryCounts": categories,
         "sceneInstances": scene_instances,
+        "scenePresence": {
+            "totalInstances": total_scene_instances,
+            "activeClasses": active_class_names,
+        },
+        "sceneInstancesCoverage": {
+            "classesRequested": len(class_names),
+            "classesCounted": min(len(class_names), scene_instance_count_limit),
+            "truncated": scene_instances_truncated,
+        },
+        "installation": installation,
+        "workflowHints": {
+            "mode": _workflow_mode(category),
+            "recommendedSequence": _recommended_sequence(category),
+            "primaryEntryClass": entry_classes[0] if entry_classes else None,
+        },
         "recommendedTools": recommended_tools,
         "recipes": recipes,
         "gotchas": gotchas,
+        "warnings": warnings,
         "generatedFrom": {
-            "capabilities": True,
-            "runtimeClassScan": True,
+            "capabilities": {
+                "available": bool(capabilities),
+                "pluginKeys": sorted(str(key) for key in capabilities.get("plugins", {}).keys()) if isinstance(capabilities.get("plugins", {}), dict) else [],
+            },
+            "runtimeClassScan": {
+                "matchedClassCount": len(filtered),
+                "truncated": truncated,
+            },
             "curatedOverlay": bool(overlay),
         },
     }
@@ -621,20 +842,39 @@ def discover_plugin_surface(
         classes = _fetch_runtime_classes(filter_terms=_plugin_terms(plugin_name))
         filtered, truncated = _filter_runtime_classes(classes, plugin_name=plugin_name, class_limit=max(1, class_limit))
         overlay = _find_overlay(plugin_name)
-        scene_instances = _get_scene_instance_counts([str(item.get("name", "")) for item in filtered[:20]])
-        installed = bool(filtered)
-        if overlay and overlay.get("capability_key"):
-            installed = bool(capabilities.get("plugins", {}).get(str(overlay["capability_key"]), False))
+        scene_instance_count_limit = 20
+        scene_instances = _get_scene_instance_counts([str(item.get("name", "")) for item in filtered[:scene_instance_count_limit]])
+        installed, installation, warnings = _install_detection(overlay, capabilities, bool(filtered))
+        if truncated:
+            warnings.append("Runtime class scan hit the class limit; the class list is incomplete.")
+        if not filtered:
+            warnings.append("No matching runtime classes were found for this plugin filter.")
+        if len(filtered) > scene_instance_count_limit:
+            warnings.append("Scene instance counts were sampled for the first 20 related classes only.")
+
+        _, entry_classes_expected, entry_classes_detected = _entry_class_details(
+            overlay,
+            [str(item.get("name", "")) for item in filtered],
+            scene_instances,
+        )
 
         return json.dumps({
             "plugin": overlay["name"] if overlay else plugin_name,
             "installed": installed,
             "families": sorted({item.get("category") for item in filtered if item.get("category")}),
-            "entryClasses": [item["name"] for item in filtered if item.get("name") in (overlay or {}).get("entry_classes", [])][:10],
+            "entryClasses": entry_classes_detected[:10],
+            "entryClassesExpected": entry_classes_expected[:10],
+            "entryClassesDetected": entry_classes_detected[:10],
             "relatedClasses": [item["name"] for item in filtered],
             "sceneInstances": scene_instances,
+            "sceneInstancesCoverage": {
+                "classesRequested": len(filtered),
+                "classesCounted": min(len(filtered), scene_instance_count_limit),
+                "truncated": len(filtered) > scene_instance_count_limit,
+            },
             "truncated": truncated,
-            "notes": [] if filtered else ["No matching runtime classes were found for this plugin filter."],
+            "installation": installation,
+            "notes": warnings,
         })
 
     plugin_summaries = []
@@ -668,7 +908,7 @@ def inspect_plugin_class(
     include_properties: bool = True,
 ) -> str:
     """Inspect a plugin class using runtime class scans plus showClass reflection."""
-    classes = _fetch_runtime_classes(filter_terms=[_normalize(class_name)])
+    classes = _fetch_runtime_classes(filter_terms=[])
     matched = next((item for item in classes if _normalize(str(item.get("name", ""))) == _normalize(class_name)), None)
     if matched is None:
         return json.dumps({"error": f"Unknown class: {class_name}"})
@@ -692,7 +932,8 @@ def inspect_plugin_class(
             "recommendedTooling": _recommended_tools(category),
         },
         "properties": parsed.get("properties", []) if include_properties else [],
-        "methods": [] if include_methods else None,
+        "methods": [],
+        "methodReflectionSupported": False,
         "warnings": warnings,
         "reflection": {
             "showClassHeader": parsed.get("header"),
@@ -820,11 +1061,19 @@ def inspect_plugin_instance(name: str, detail: str = "normal") -> str:
         return json.dumps(inspected_object)
 
     plugin_sources = _extract_plugin_sources(inspected_object)
-    plugin_name = plugin_sources[0]["plugin"] if plugin_sources else None
+    plugins_detected = []
+    for item in plugin_sources:
+        plugin = item.get("plugin")
+        if plugin and plugin not in plugins_detected:
+            plugins_detected.append(plugin)
+    plugin_name, primary_plugin_reason = _primary_plugin_source(plugin_sources)
 
     result: dict[str, Any] = {
         "name": name,
         "plugin": plugin_name,
+        "primaryPlugin": plugin_name,
+        "primaryPluginReason": primary_plugin_reason,
+        "pluginsDetected": plugins_detected,
         "pluginSources": plugin_sources,
         "object": inspected_object,
     }
@@ -851,6 +1100,11 @@ def inspect_plugin_instance(name: str, detail: str = "normal") -> str:
 
     if plugin_name:
         result["manifest"] = _build_manifest(plugin_name)
+    if plugins_detected:
+        result["manifestsByPlugin"] = {
+            plugin: _build_manifest(plugin)
+            for plugin in plugins_detected
+        }
 
     return json.dumps(result)
 

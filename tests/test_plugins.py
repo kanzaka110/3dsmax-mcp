@@ -63,7 +63,22 @@ class PluginToolTests(unittest.TestCase):
         self.assertEqual(result["plugin"], "tyFlow")
         self.assertEqual(result["installed"], True)
         self.assertEqual(result["sceneInstances"]["tyFlow"], 2)
+        self.assertEqual(result["installation"]["status"], "confirmed")
+        self.assertEqual(result["entryClassesExpected"], ["tyFlow"])
+        self.assertEqual(result["entryClassesDetected"], ["tyFlow"])
         self.assertIn("geometry", result["families"])
+
+    def test_discover_plugin_surface_keeps_runtime_detection_when_capabilities_disagree(self) -> None:
+        with (
+            patch("src.tools.plugins._fetch_runtime_classes", return_value=RUNTIME_CLASSES),
+            patch("src.tools.plugins._get_scene_instance_counts", return_value={"tyFlow": 1, "tyMesher": 0}),
+            patch("src.tools.plugins.get_plugin_capabilities", return_value='{"plugins":{"tyFlow":false}}'),
+        ):
+            result = json.loads(discover_plugin_surface(plugin_name="tyflow"))
+
+        self.assertEqual(result["installed"], True)
+        self.assertEqual(result["installation"]["status"], "runtime_only")
+        self.assertTrue(any("did not report this plugin" in note for note in result["notes"]))
 
     def test_inspect_plugin_class_uses_showclass_reflection(self) -> None:
         with (
@@ -79,23 +94,84 @@ class PluginToolTests(unittest.TestCase):
         self.assertEqual(result["class"], "tyFlow")
         self.assertEqual(result["category"], "geometry")
         self.assertEqual(result["properties"][0]["name"], "simResetMode")
+        self.assertEqual(result["methods"], [])
+        self.assertEqual(result["methodReflectionSupported"], False)
         self.assertTrue(any("Method reflection" in warning for warning in result["warnings"]))
+
+    def test_inspect_plugin_class_returns_stable_method_schema_when_disabled(self) -> None:
+        with (
+            patch("src.tools.plugins._fetch_runtime_classes", return_value=RUNTIME_CLASSES),
+            patch("src.tools.plugins._fetch_showclass_lines", return_value=[
+                "tyFlow : GeometryClass {31322891,70f5b9ca}",
+                "  .simResetMode : integer",
+            ]),
+        ):
+            result = json.loads(inspect_plugin_class("tyFlow", include_methods=False))
+
+        self.assertEqual(result["methods"], [])
+        self.assertEqual(result["methodReflectionSupported"], False)
+
+    def test_inspect_plugin_class_matches_runtime_names_with_underscores(self) -> None:
+        railclone_classes = [
+            {"name": "RailClone_Pro", "superclass": "GeometryClass", "category": "geometry", "plugin": "RailClone"},
+        ]
+        with (
+            patch("src.tools.plugins._fetch_runtime_classes", return_value=railclone_classes),
+            patch("src.tools.plugins._fetch_showclass_lines", return_value=[
+                "RailClone_Pro(RailClone Pro) : GeometryClass {39712def,10a72959}",
+                "  .spline : node",
+            ]),
+        ):
+            result = json.loads(inspect_plugin_class("RailClone_Pro"))
+
+        self.assertEqual(result["class"], "RailClone_Pro")
+        self.assertEqual(result["properties"][0]["name"], "spline")
 
     def test_build_manifest_merges_overlay_and_runtime_data(self) -> None:
         with (
             patch("src.tools.plugins._fetch_runtime_classes", return_value=RUNTIME_CLASSES),
             patch("src.tools.plugins._get_scene_instance_counts", return_value={"tyFlow": 1, "tyMesher": 0}),
+            patch("src.tools.plugins._fetch_showclass_lines", return_value=[
+                "tyFlow : GeometryClass {31322891,70f5b9ca}",
+                "  .simResetMode : integer",
+                "  .allowCustomWirecolor : boolean",
+            ]),
             patch("src.tools.plugins.get_plugin_capabilities", return_value='{"plugins":{"tyFlow":true}}'),
         ):
             manifest = _build_manifest("tyflow")
 
         self.assertEqual(manifest["plugin"], "tyFlow")
         self.assertEqual(manifest["installed"], True)
+        self.assertEqual(manifest["manifestVersion"], 1)
+        self.assertEqual(manifest["installation"]["status"], "confirmed")
+        self.assertEqual(manifest["entryClassesExpected"], ["tyFlow"])
+        self.assertEqual(manifest["entryClassesDetected"], ["tyFlow"])
+        self.assertEqual(manifest["classes"]["tyFlow"]["reflection"]["sampled"], True)
+        self.assertEqual(manifest["sceneInstancesCoverage"]["truncated"], False)
         self.assertIn("discover_plugin_surface", manifest["recommendedTools"])
         self.assertIn(
             "For existing flows, start with get_tyflow_info (enable include_flow_properties/include_event_properties/include_operator_properties as needed), then mutate.",
             manifest["recipes"],
         )
+
+    def test_build_manifest_marks_partial_scene_instance_coverage(self) -> None:
+        many_classes = [
+            {"name": f"tyFlow{i:02d}", "superclass": "GeometryClass", "category": "geometry", "plugin": "tyFlow"}
+            for i in range(25)
+        ]
+        scene_counts = {item["name"]: 0 for item in many_classes[:20]}
+        with (
+            patch("src.tools.plugins._fetch_runtime_classes", return_value=many_classes),
+            patch("src.tools.plugins._get_scene_instance_counts", return_value=scene_counts),
+            patch("src.tools.plugins._fetch_showclass_lines", return_value=[]),
+            patch("src.tools.plugins.get_plugin_capabilities", return_value='{"plugins":{"tyFlow":true}}'),
+        ):
+            manifest = _build_manifest("tyflow")
+
+        self.assertEqual(manifest["sceneInstancesCoverage"]["classesRequested"], 25)
+        self.assertEqual(manifest["sceneInstancesCoverage"]["classesCounted"], 20)
+        self.assertEqual(manifest["sceneInstancesCoverage"]["truncated"], True)
+        self.assertTrue(any("sampled for the first 20" in warning for warning in manifest["warnings"]))
 
     def test_get_plugin_manifest_returns_json(self) -> None:
         with patch("src.tools.plugins._build_manifest", return_value={"plugin": "tyFlow", "installed": True}):
@@ -166,7 +242,23 @@ class PluginToolTests(unittest.TestCase):
 
         self.assertEqual(result["plugin"], "tyFlow")
         self.assertEqual(result["manifest"]["plugin"], "tyFlow")
+        self.assertEqual(result["primaryPlugin"], "tyFlow")
+        self.assertEqual(result["pluginsDetected"], ["tyFlow"])
+        self.assertEqual(result["manifestsByPlugin"]["tyFlow"]["plugin"], "tyFlow")
         self.assertEqual(result["objectProperties"]["propertyCount"], 2)
+
+    def test_inspect_plugin_instance_reports_multiple_plugin_sources(self) -> None:
+        with (
+            patch("src.tools.inspect.inspect_object", return_value='{"name":"Hybrid001","class":"tyFlow","baseObject":"tyFlow","modifiers":[{"class":"Forest_Pro"}],"material":{"class":"RailClone_Pro"}}'),
+            patch("src.tools.inspect.inspect_properties", return_value='{"class":"tyFlow","propertyCount":1,"properties":[{"name":"simResetMode","value":"0","declaredType":"integer","runtimeType":"Integer"}]}'),
+            patch("src.tools.plugins._build_manifest", side_effect=lambda plugin: {"plugin": plugin}),
+        ):
+            result = json.loads(inspect_plugin_instance("Hybrid001"))
+
+        self.assertEqual(result["primaryPlugin"], "tyFlow")
+        self.assertIn("Detected from the object's runtime class", result["primaryPluginReason"])
+        self.assertEqual(result["pluginsDetected"], ["tyFlow", "RailClone", "Forest Pack"])
+        self.assertEqual(sorted(result["manifestsByPlugin"].keys()), ["Forest Pack", "RailClone", "tyFlow"])
 
 
 if __name__ == "__main__":
