@@ -839,6 +839,11 @@ std::string NativeHandlers::WriteOSLShader(const std::string& params, MCPBridgeG
             ")";
         RunMAXScript(createScript);
 
+        // Step 2b: Verify compilation succeeded
+        std::string verifyScript = globalVar + ".OSLShaderName";
+        std::string compiledName = RunMAXScript(verifyScript);
+        bool compiled = (compiledName != "Example" && !compiledName.empty());
+
         // Step 3: Set custom properties (OSLMap lowercases param names)
         json okList = json::array();
         json errList = json::array();
@@ -863,9 +868,22 @@ std::string NativeHandlers::WriteOSLShader(const std::string& params, MCPBridgeG
         result["file"] = oslPathUtf8;
         result["globalVar"] = globalVar;
         result["shaderName"] = shaderName;
+        result["compiled"] = compiled;
+        result["compiledAs"] = compiledName;
         if (!okList.empty()) result["set"] = okList;
         if (!errList.empty()) result["errors"] = errList;
-        result["message"] = "OSL shader written to " + oslPathUtf8 + " | Global: " + globalVar;
+
+        if (!compiled) {
+            result["message"] = "WARNING: OSL shader failed to compile (still 'Example'). "
+                "Check: shader function name must match shader_name='" + shaderName + "', "
+                "verify OSL syntax is valid. File written to " + oslPathUtf8;
+        } else {
+            result["message"] = "OSL shader '" + compiledName + "' compiled OK | Global: " + globalVar;
+            if (!okList.empty()) {
+                result["message"] = result["message"].get<std::string>() +
+                    " | Set " + std::to_string(okList.size()) + " properties";
+            }
+        }
         return result.dump();
     });
 }

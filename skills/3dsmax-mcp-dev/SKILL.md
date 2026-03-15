@@ -259,13 +259,37 @@ Do not create a new file for every `_verified` wrapper unless the orchestration 
 - `(getDir #temp)` is Max temp, not OS temp.
 - `#view_persp_user` is the correct perspective view enum.
 
-### OSLMap compilation (Max 2026)
-- OSLMap ONLY compiles custom shaders from inline `OSLCode` string assignment — setting `OSLPath` alone does NOT trigger recompilation
-- File-read approaches (`readLine`, `readDelimitedString`) produce strings that OSLMap silently rejects — shader stays as "Example"
-- Correct order: set `OSLCode` first (inline string with `\n` escapes), then `OSLAutoUpdate`, then `OSLPath`
-- OSLMap lowercases all custom param names — use lowercase when setting properties (e.g. `power` not `Power`)
-- `color * float` multiplication IS valid in Max 2026 OSL — earlier failures were from stale cached OSLMaps with same name
-- When an OSLMap fails to compile, it silently falls back to the "Example" shader — always check `OSLShaderName` to verify
+### OSL shader writing (Max 2026) — CRITICAL RULES
+- Use `write_osl_shader` tool — it handles file I/O, compilation, and global storage
+- The **shader function name MUST match `shader_name`** exactly (case-sensitive)
+- Use **unique shader names** — reusing a name hits stale cache and silently fails
+- OSLMap **lowercases all param names** — always use lowercase keys in properties dict
+- The handler verifies compilation — if `compiledAs` returns "Example", the shader failed
+- `color * float` IS valid: `EdgeColor * Boost` works fine
+- Standard OSL globals: `N`, `I`, `P`, `u`, `v`, `time`, `dPdu`, `dPdv`
+- Common functions: `mix()`, `pow()`, `abs()`, `dot()`, `normalize()`, `noise()`, `clamp()`, `smoothstep()`
+- After creation, wire via: `set_material_property(name="Obj", property="base_color_shader", value="ShaderGlobalVar")`
+
+Working one-shot template:
+```
+write_osl_shader(
+    shader_name="MyShader",
+    osl_code="""shader MyShader(
+        color BaseColor = color(0.8, 0.2, 0.1),
+        float Roughness = 0.5,
+        output color result = 0
+    )
+    {
+        result = BaseColor * Roughness;
+    }""",
+    properties={"basecolor": "color(1,0,0)", "roughness": "0.3"}
+)
+```
+
+Internal details (for developers):
+- OSLMap ONLY compiles from inline `OSLCode` string — file-read approaches silently fail
+- Correct order: `OSLCode` first, then `OSLAutoUpdate`, then `OSLPath`
+- File-read via `readLine`/`readDelimitedString` produces strings OSLMap rejects
 
 ### Native C++ SDK pitfalls
 - `is_array()` macro collision: MAXScript SDK defines `is_array` macro — use `.type() == json::value_t::array` instead of `.is_array()`

@@ -1152,18 +1152,47 @@ def write_osl_shader(
     After loading, the OSLMap exposes all shader parameters as properties.
     Use the optional properties dict to set initial parameter values.
 
+    IMPORTANT — OSL rules for 3ds Max 2026:
+    - The shader function name MUST match shader_name exactly
+    - Use UNIQUE shader_name for each new shader (reusing a name may hit a stale cache)
+    - Property names get lowercased by OSLMap (use lowercase keys in properties dict)
+    - color * float multiplication IS valid (e.g. EdgeColor * Boost)
+    - All outputs must be typed: "output color result = 0" or "output float result = 0"
+    - Annotations [[ ]] are optional but valid: float Power = 3.0 [[ string label = "Power" ]]
+    - Standard OSL globals work: N, I, P, u, v, time, dPdu, dPdv
+    - Common functions: mix(), pow(), abs(), dot(), normalize(), noise(), clamp(), smoothstep()
+
+    Working example:
+        shader_name="FresnelGlow"
+        osl_code='''shader FresnelGlow(
+            color CoreColor = color(0.02, 0.02, 0.05),
+            color EdgeColor = color(0.2, 0.6, 1.0),
+            float Power = 3.0,
+            float Boost = 2.0,
+            output color result = 0
+        )
+        {
+            float d = dot(normalize(N), normalize(I));
+            float f = pow(1.0 - abs(d), Power);
+            result = mix(CoreColor, EdgeColor * Boost, f);
+        }'''
+        properties={"power": "4.0", "boost": "3.0"}
+
+    After creation, wire into a material:
+        set_material_property(name="MyObj", property="base_color_shader", value="FresnelGlow")
+
     Args:
-        shader_name: Name for the shader file and OSLMap (e.g. "ProceduralIris").
-                     Used as filename ({shader_name}.osl) and map display name.
+        shader_name: Name for the shader file and OSLMap. MUST match the shader
+                     function name in osl_code. Use unique names to avoid cache issues.
         osl_code: Complete OSL shader source code. Must include the shader
                   function with typed parameters and output(s).
         global_var: MAXScript global variable name. If empty, derived from
                     shader_name. Use this name to reference the map later.
         properties: Optional dict of shader parameter values to set after
-                    loading (e.g. {"PupilSize": "0.16", "IrisColor": "color 56 97 46"}).
+                    loading. Keys MUST be lowercase (e.g. {"power": "4.0"}).
 
     Returns:
-        Confirmation with file path and global variable name.
+        Confirmation with file path, global variable name, and compilation status.
     """
     if not global_var:
         global_var = "".join(c if c.isalnum() or c == "_" else "_" for c in shader_name)
