@@ -154,6 +154,18 @@ These wrappers are the right place for common action+verify flows. Do not create
 - Visibility/freeze: `set_visibility`
 - Clone/instance: `clone_objects`
 - Batch rename: `batch_rename_objects`
+- Scene state: `manage_scene` (hold/fetch/reset/save/info)
+
+### Viewport capture
+- Single viewport: `capture_viewport`, `capture_model`
+- **Multi-view grid: `capture_multi_view`** — captures front/right/back/top (configurable) and stitches into a labeled 2x2 grid image. Use this for spatial awareness instead of 4 separate captures. Saves tokens. Image saved to `%TEMP%\3dsmax_multiview.png`.
+- Fullscreen: `capture_screen` (requires `enabled=True`)
+
+### External .max file access
+- Inspect without opening: `inspect_max_file` — reads OLE metadata (size, dates, author) without loading. Add `list_objects=True` for object names via MERGE_LIST_NAMES.
+- Import objects: `merge_from_file` — selective merge by object name, with duplicate handling (rename/skip/merge/delete_old).
+- Batch scan: `batch_file_info` — metadata from multiple files in parallel (std::async threads for OLE, main thread for object listing).
+- **Search across files: `search_max_files`** — scans a folder recursively, lists all objects from every .max file, filters by wildcard pattern. Use for "where is the fridge?" / "which file has the character?" queries.
 
 ### Procedural / specialty systems
 - Data Channel: `add_data_channel`, `inspect_data_channel`, `set_data_channel_operator`, `add_dc_script_operator`
@@ -176,19 +188,26 @@ Do not use it as the default workflow surface when a proper tool exists.
 
 Current architecture:
 - Python MCP server: `FastMCP`
-- 3ds Max host side: MAXScript TCP listener in `maxscript/mcp_server.ms`
-- Address: `127.0.0.1:8765`
-- Transport: JSON + newline delimiter, one request/response per connection
-- Listener model: `.NET TcpListener` + timer polling
+- **Native C++ GUP plugin** (`native/bin/mcp_bridge.gup`) loaded at 3ds Max startup
+- Transport: **named pipe** (`\\.\pipe\3dsmax-mcp`) — no TCP, no MAXScript listener
+- All 38+ native handlers use direct SDK API calls (IParamBlock2, IDerivedObject, IInstanceMgr, etc.)
+- Non-native tools still send MAXScript through the pipe's `HandleMaxScript` path (ExecuteMAXScriptScript in C++)
+- `client.native_available` flag routes each tool to native or MAXScript path
+- Transport forced to `"pipe"` in `max_client.py` — TCP disabled entirely
 
-Current live pattern:
-- protocol v2 supports `requestId` and response `meta`
-- `get_bridge_status` falls back to legacy protocol behavior when needed
+Handler files in `native/src/handlers/`:
+- `scene_handlers.cpp` — scene_info, selection, snapshots, find_class_instances, hierarchy
+- `object_handlers.cpp` — create/delete/transform/select/clone/visibility/properties
+- `modifier_handlers.cpp` — add/remove/state/collapse/unique/batch_modify
+- `inspect_handlers.cpp` — inspect_object, inspect_properties, materials, instances, dependencies, material_slots, write_osl_shader
+- `scene_manage_handlers.cpp` — set_parent, batch_rename, manage_scene
+- `file_handlers.cpp` — inspect_max_file, merge_from_file, batch_file_info (OLE + MERGE_LIST_NAMES)
+- `viewport_handlers.cpp` — capture_multi_view (GDI+ stitching)
 
 When editing the bridge:
+- C++ changes: rebuild (`cmake --build native/build --config Release`), deploy (`native/deploy.bat`), restart 3ds Max
 - Python-side transport changes need MCP server restart
-- MAXScript listener changes need reloading `mcp_server.ms` inside 3ds Max
-- keep compatibility in mind if the Python side may speak to an older listener
+- New handler: add to handler .cpp, declare in `native_handlers.h`, route in `command_dispatcher.cpp`, add to `CMakeLists.txt`
 
 ## Adding or Updating Tools
 
