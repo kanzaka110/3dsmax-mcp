@@ -39,4 +39,14 @@ namespace NativeHandlers {
     std::string GetDependencies(const std::string& params, MCPBridgeGUP* gup);
     std::string GetMaterialSlots(const std::string& params, MCPBridgeGUP* gup);
     std::string WriteOSLShader(const std::string& params, MCPBridgeGUP* gup);
+
+    // Phase 4: Scene management
+    std::string SetParent(const std::string& params, MCPBridgeGUP* gup);
+    std::string BatchRenameObjects(const std::string& params, MCPBridgeGUP* gup);
+    std::string ManageScene(const std::string& params, MCPBridgeGUP* gup);
+
+    // File access (new feature)
+    std::string InspectMaxFile(const std::string& params, MCPBridgeGUP* gup);
+    std::string MergeFromFile(const std::string& params, MCPBridgeGUP* gup);
+    std::string BatchFileInfo(const std::string& params, MCPBridgeGUP* gup);
 }

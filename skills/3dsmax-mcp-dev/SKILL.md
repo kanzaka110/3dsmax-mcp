@@ -240,6 +240,23 @@ Do not create a new file for every `_verified` wrapper unless the orchestration 
 - `(getDir #temp)` is Max temp, not OS temp.
 - `#view_persp_user` is the correct perspective view enum.
 
+### OSLMap compilation (Max 2026)
+- OSLMap ONLY compiles custom shaders from inline `OSLCode` string assignment — setting `OSLPath` alone does NOT trigger recompilation
+- File-read approaches (`readLine`, `readDelimitedString`) produce strings that OSLMap silently rejects — shader stays as "Example"
+- Correct order: set `OSLCode` first (inline string with `\n` escapes), then `OSLAutoUpdate`, then `OSLPath`
+- OSLMap lowercases all custom param names — use lowercase when setting properties (e.g. `power` not `Power`)
+- `color * float` multiplication IS valid in Max 2026 OSL — earlier failures were from stale cached OSLMaps with same name
+- When an OSLMap fails to compile, it silently falls back to the "Example" shader — always check `OSLShaderName` to verify
+
+### Native C++ SDK pitfalls
+- `is_array()` macro collision: MAXScript SDK defines `is_array` macro — use `.type() == json::value_t::array` instead of `.is_array()`
+- `Matrix3(1)` deprecated in Max 2026 — use `Matrix3()` default constructor (identity by default)
+- `Modifier::GetName()` takes `bool localized` param — use `mod->GetName(false).data()`
+- `EnableModInViews()`/`EnableModInRender()` take NO arguments — separate Enable/Disable methods
+- `QuatToEuler` signature: `(const Quat&, float*, int, bool)` not `(Quat, float*, float*, float*)`
+- `ClassDesc::ClassName()` returns `const MCHAR*` directly, not a string class
+- `CreateObjectNode()` takes 1 argument (Object*), not 2 — set name separately via `node->SetName()`
+
 ## Domain Notes
 
 ### Materials

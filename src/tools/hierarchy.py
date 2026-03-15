@@ -14,6 +14,11 @@ def set_parent(children: list[str], parent: str = "") -> str:
 
     Returns confirmation summary.
     """
+    if client.native_available:
+        payload = _json.dumps({"children": children, "parent": parent})
+        response = client.send_command(payload, cmd_type="native:set_parent")
+        return response.get("result", "")
+
     child_names = "#(" + ", ".join(f'"{safe_string(n)}"' for n in children) + ")"
 
     if parent:

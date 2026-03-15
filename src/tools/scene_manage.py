@@ -1,3 +1,4 @@
+import json as _json
 from ..server import mcp, client
 
 
@@ -16,6 +17,11 @@ def manage_scene(action: str) -> str:
     Returns confirmation or scene info.
     """
     action = action.lower().strip()
+
+    if client.native_available:
+        payload = _json.dumps({"action": action})
+        response = client.send_command(payload, cmd_type="native:manage_scene")
+        return response.get("result", "")
 
     if action == "hold":
         maxscript = """(

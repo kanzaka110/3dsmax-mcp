@@ -151,6 +151,11 @@ def batch_rename_objects(renames_json: str) -> str:
     """
     renames = json.loads(renames_json)
 
+    if client.native_available:
+        payload = json.dumps({"renames": renames})
+        response = client.send_command(payload, cmd_type="native:batch_rename_objects")
+        return response.get("result", "")
+
     parts = []
     for r in renames:
         old = r["old_name"].replace("\\", "\\\\").replace('"', '\\"')

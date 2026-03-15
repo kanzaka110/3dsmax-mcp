@@ -221,6 +221,20 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::GetMaterialSlots(command, gup);
         } else if (cmd_type == "native:write_osl_shader") {
             result = NativeHandlers::WriteOSLShader(command, gup);
+        // Phase 4: Scene management
+        } else if (cmd_type == "native:set_parent") {
+            result = NativeHandlers::SetParent(command, gup);
+        } else if (cmd_type == "native:batch_rename_objects") {
+            result = NativeHandlers::BatchRenameObjects(command, gup);
+        } else if (cmd_type == "native:manage_scene") {
+            result = NativeHandlers::ManageScene(command, gup);
+        // File access
+        } else if (cmd_type == "native:inspect_max_file") {
+            result = NativeHandlers::InspectMaxFile(command, gup);
+        } else if (cmd_type == "native:merge_from_file") {
+            result = NativeHandlers::MergeFromFile(command, gup);
+        } else if (cmd_type == "native:batch_file_info") {
+            result = NativeHandlers::BatchFileInfo(command, gup);
         } else {
             throw std::runtime_error("Unknown command type: " + cmd_type);
         }
