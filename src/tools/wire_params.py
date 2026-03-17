@@ -8,7 +8,7 @@ modifier's angle). These tools expose wiring as first-class operations.
 from typing import Optional
 import json as _json
 from ..server import mcp, client
-from src.helpers.maxscript import safe_string, safe_name
+from src.helpers.maxscript import safe_string, safe_name, normalize_subanim_path
 
 
 @mcp.tool()
@@ -144,8 +144,8 @@ def wire_params(
 
     safe_src_obj = safe_string(source_object)
     safe_tgt_obj = safe_string(target_object)
-    safe_src_param = safe_string(source_param)
-    safe_tgt_param = safe_string(target_param)
+    safe_src_param = safe_string(normalize_subanim_path(source_param))
+    safe_tgt_param = safe_string(normalize_subanim_path(target_param))
     safe_expr = safe_string(expression)
 
     # If path starts with "[", no dot separator needed (e.g. $'Obj'[#transform])
@@ -269,7 +269,7 @@ def unwire_params(
         Confirmation that the wire was removed.
     """
     safe_obj = safe_string(object_name)
-    safe_param = safe_string(param_path)
+    safe_param = safe_string(normalize_subanim_path(param_path))
     param_sep = "" if safe_param.startswith("[") else "."
     maxscript = f"""(
     local obj = getNodeByName "{safe_obj}"

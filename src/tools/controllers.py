@@ -8,7 +8,7 @@ math-driven motion, and list controllers for layered blending.
 from typing import Optional
 import json as _json
 from ..server import mcp, client
-from src.helpers.maxscript import safe_string, safe_name
+from src.helpers.maxscript import safe_string, safe_name, normalize_subanim_path
 
 
 # ── Controller type registry ────────────────────────────────────────
@@ -142,7 +142,7 @@ def assign_controller(
         return f"Unknown controller_type: {controller_type}. Available: {keys}"
 
     safe_obj = safe_name(name)
-    safe_path = safe_string(param_path)
+    safe_path = safe_string(normalize_subanim_path(param_path))
     sep = "" if safe_path.startswith("[") else "."
     ctor = _CONTROLLER_MAP[ct]
 
@@ -295,7 +295,7 @@ def inspect_controller(
         JSON with controller details, properties table, and type-specific sections.
     """
     safe_obj = safe_name(name)
-    safe_path = safe_string(param_path)
+    safe_path = safe_string(normalize_subanim_path(param_path))
     sep = "" if safe_path.startswith("[") else "."
 
     maxscript = f"""(
@@ -605,7 +605,7 @@ def add_controller_target(
         Confirmation message.
     """
     safe_obj = safe_name(name)
-    safe_path = safe_string(param_path)
+    safe_path = safe_string(normalize_subanim_path(param_path))
     safe_target = safe_name(target_object)
     safe_var = safe_string(var_name) if var_name else ""
     sep = "" if safe_path.startswith("[") else "."
@@ -688,7 +688,7 @@ def set_controller_props(
         Confirmation message.
     """
     safe_obj = safe_name(name)
-    safe_path = safe_string(param_path)
+    safe_path = safe_string(normalize_subanim_path(param_path))
     sep = "" if safe_path.startswith("[") else "."
 
     lines = [
