@@ -382,6 +382,7 @@ Useful signals:
 - syntax errors around JSON literals: escaping/building issue in MAXScript
 - mutation success with no readback change: verification gap, not success
 - Codex `shell_command` can be polluted by user PowerShell profile output/errors; use `login:false` for clean command output during repo diagnostics.
+- In some Codex Windows environments, bundled `rg.exe` can fail with `Access is denied`; use `Get-ChildItem` + `Select-String` fallbacks for file listing/search.
 - Native C++ builds that include MaxScript headers should use MSVC `/EHa`; `/EHsc` triggers warning C4535 in SDK macros.
 - For `.gup` targets with a `.def` file, omit `LIBRARY ...` to avoid LNK4070 `/OUT:...dll` mismatch warnings.
 
