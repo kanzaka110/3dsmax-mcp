@@ -78,7 +78,17 @@ When encountering an unfamiliar class, plugin, or object — **use C++ SDK intro
 - Inspect: `get_material_slots`, `get_materials`
 - Multi/Sub: `set_sub_material`
 - Textures: `create_texture_map`, `set_texture_map_properties`, `create_material_from_textures`
+- Shell + ORM: `create_shell_material`, `replace_material`, `batch_replace_materials`
 - OSL: `write_osl_shader`
+
+### Known Issues — Material Pipeline
+- `create_material_from_textures` has no ORM packed texture support (OcclusionRoughnessMetallic)
+- No UberBitmap (OSLMap) awareness — uses Bitmaptexture/ai_image instead of OSL UberBitmap2.osl
+- No MultiOutputChannelTexmapToTexmap knowledge — cannot split R/G/B channels from a single map
+- No Shell Material support — cannot wrap glTF + Arnold in dual-pipeline structure
+- Arnold wiring uses ai_image instead of UberBitmap — misses channel splitting for packed maps
+- AO compositing uses ai_layer_rgba instead of ai_multiply — inconsistent with standard Arnold workflows
+- No concept of render vs export material slots (Shell originalMaterial / bakedMaterial)
 
 ### Viewport
 - Fast: `capture_viewport`, `capture_model`
@@ -131,6 +141,17 @@ Never as default when a proper tool exists.
 - **`(getDir #temp)`** is Max temp, not OS temp
 - **.NET strings**: convert to MAXScript strings before using string methods
 - `assign_controller`/`wire_params` track paths may fail with display-style tokens like `[#Transform][#Position][#Z Position]`; normalize to lowercase underscore form like `[#transform][#position][#z_position]`.
+
+### UberBitmap + Shell Material Workflow
+- `create_shell_material` builds a Shell Material wrapping Arnold (render) + glTF (export)
+- Arnold render slot uses UberBitmap2.osl (OSLMap) for all texture loading — NOT ai_image or Bitmaptexture
+- Packed ORM textures are split via `MultiOutputChannelTexmapToTexmap`:
+  - Output 1 = Col (RGB), 2 = R, 3 = G, 4 = B, 5 = A, 6 = Luminance, 7 = Average
+- Standard ORM wiring: BaseColor×AO(R) via `ai_multiply` → base_color, G → specular_roughness, B → metalness
+- Shell Material slots: `originalMaterial` (slot 0, render) = Arnold, `bakedMaterial` (slot 1, export) = glTF
+- `renderMtlIndex = 0` (Arnold for rendering), `viewportMtlIndex = 1` (glTF for viewport/export)
+- When ORM texture detected in `_DEFAULT_CHANNEL_PATTERNS`, prefer packed split over separate roughness/metallic files
+- `replace_material` / `batch_replace_materials` for swapping materials across objects
 
 ### OSL Shader Rules
 - Use `write_osl_shader` — handles file I/O, compilation, global storage

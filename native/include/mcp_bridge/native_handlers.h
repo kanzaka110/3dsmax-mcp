@@ -62,6 +62,9 @@ namespace NativeHandlers {
     std::string SetMaterialProperties(const std::string& params, MCPBridgeGUP* gup);
     std::string SetMaterialVerified(const std::string& params, MCPBridgeGUP* gup);
 
+    // Shell material creation
+    std::string CreateShellMaterial(const std::string& params, MCPBridgeGUP* gup);
+
     // Plugin enumeration
     std::string ListPluginClasses(const std::string& params, MCPBridgeGUP* gup);
 

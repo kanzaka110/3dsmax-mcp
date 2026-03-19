@@ -358,3 +358,187 @@ std::string NativeHandlers::SetMaterialVerified(const std::string& params, MCPBr
     result["materialSlots"] = afterSlots;
     return result.dump();
 }
+
+// ── native:create_shell_material (Arnold UberBitmap + glTF Shell) ──
+std::string NativeHandlers::CreateShellMaterial(const std::string& params, MCPBridgeGUP* gup) {
+    return gup->GetExecutor().ExecuteSync([&params]() -> std::string {
+        json p = json::parse(params, nullptr, false);
+        if (p.is_discarded()) throw std::runtime_error("Invalid JSON params");
+
+        std::string shellName       = p.value("name", "");
+        std::string arnoldName      = p.value("render_material_name", "");
+        std::string gltfMatName     = p.value("gltf_material_name", "");
+        std::string baseColorPath   = p.value("base_color_path", "");
+        std::string ormPath         = p.value("orm_path", "");
+        std::string normalPath      = p.value("normal_path", "");
+        auto assignTo               = p.value("assign_to", std::vector<std::string>{});
+
+        if (shellName.empty()) throw std::runtime_error("name is required");
+        if (arnoldName.empty()) throw std::runtime_error("render_material_name is required");
+        if (baseColorPath.empty()) throw std::runtime_error("base_color_path is required");
+        if (ormPath.empty()) throw std::runtime_error("orm_path is required");
+
+        // Escape strings for safe embedding in MAXScript
+        std::string eShellName     = JsonEscape(shellName);
+        std::string eArnoldName    = JsonEscape(arnoldName);
+        std::string eGltfMatName   = JsonEscape(gltfMatName);
+        std::string eBaseColorPath = JsonEscape(baseColorPath);
+        std::string eOrmPath       = JsonEscape(ormPath);
+        std::string eNormalPath    = JsonEscape(normalPath);
+
+        // OSL path for UberBitmap2 — resolved dynamically from Max install dir
+
+        // Build MAXScript
+        std::string script;
+        script.reserve(4096);
+
+        script += "(\n";
+        script += "  local oslPath = (getDir #maxRoot) + \"OSL\\\\UberBitmap2.osl\"\n";
+
+        // --- Find existing glTF material by name if provided ---
+        script += "  local gltfMat = undefined\n";
+        if (!gltfMatName.empty()) {
+            script += "  for obj in objects do (\n";
+            script += "    if obj.material != undefined do (\n";
+            script += "      if (classOf obj.material == Multimaterial) then (\n";
+            script += "        for i = 1 to obj.material.numsubs do (\n";
+            script += "          if obj.material[i] != undefined and obj.material[i].name == \"" + eGltfMatName + "\" do (\n";
+            script += "            gltfMat = obj.material[i]\n";
+            script += "          )\n";
+            script += "        )\n";
+            script += "      ) else (\n";
+            script += "        if obj.material.name == \"" + eGltfMatName + "\" do gltfMat = obj.material\n";
+            script += "      )\n";
+            script += "    )\n";
+            script += "  )\n";
+        }
+
+        // --- UberBitmap for BaseColor ---
+        script += "  local uberBC = OSLMap()\n";
+        script += "  uberBC.OSLPath = oslPath\n";
+        script += "  uberBC.OSLAutoUpdate = true\n";
+        script += "  uberBC.filename = \"" + eBaseColorPath + "\"\n";
+        script += "  uberBC.name = \"UberBitmap_BaseColor\"\n";
+
+        // --- UberBitmap for ORM ---
+        script += "  local uberORM = OSLMap()\n";
+        script += "  uberORM.OSLPath = oslPath\n";
+        script += "  uberORM.OSLAutoUpdate = true\n";
+        script += "  uberORM.filename = \"" + eOrmPath + "\"\n";
+        script += "  uberORM.name = \"UberBitmap_ORM\"\n";
+
+        // --- MultiOutputChannelTexmapToTexmap splitters ---
+        // BaseColor Col output (index 1)
+        script += "  local bcCol = MultiOutputChannelTexmapToTexmap()\n";
+        script += "  bcCol.sourceMap = uberBC\n";
+        script += "  bcCol.outputChannelIndex = 1\n";
+        script += "  bcCol.name = \"BC_Col\"\n";
+
+        // ORM R output (index 2) = AO
+        script += "  local ormR = MultiOutputChannelTexmapToTexmap()\n";
+        script += "  ormR.sourceMap = uberORM\n";
+        script += "  ormR.outputChannelIndex = 2\n";
+        script += "  ormR.name = \"ORM_R_AO\"\n";
+
+        // ORM G output (index 3) = Roughness
+        script += "  local ormG = MultiOutputChannelTexmapToTexmap()\n";
+        script += "  ormG.sourceMap = uberORM\n";
+        script += "  ormG.outputChannelIndex = 3\n";
+        script += "  ormG.name = \"ORM_G_Roughness\"\n";
+
+        // ORM B output (index 4) = Metalness
+        script += "  local ormB = MultiOutputChannelTexmapToTexmap()\n";
+        script += "  ormB.sourceMap = uberORM\n";
+        script += "  ormB.outputChannelIndex = 4\n";
+        script += "  ormB.name = \"ORM_B_Metalness\"\n";
+
+        // --- ai_multiply: diffuse * AO ---
+        script += "  local aiMul = ai_multiply()\n";
+        script += "  aiMul.input1_shader = bcCol\n";
+        script += "  aiMul.input2_shader = ormR\n";
+        script += "  aiMul.name = \"Diffuse_x_AO\"\n";
+
+        // --- ai_standard_surface ---
+        script += "  local arnoldMat = ai_standard_surface()\n";
+        script += "  arnoldMat.name = \"" + eArnoldName + "\"\n";
+        script += "  arnoldMat.base_color_shader = aiMul\n";
+        script += "  arnoldMat.specular_roughness_shader = ormG\n";
+        script += "  arnoldMat.metalness_shader = ormB\n";
+
+        // --- Optional: Normal map chain ---
+        if (!normalPath.empty()) {
+            script += "  local uberNrm = OSLMap()\n";
+            script += "  uberNrm.OSLPath = oslPath\n";
+            script += "  uberNrm.OSLAutoUpdate = true\n";
+            script += "  uberNrm.filename = \"" + eNormalPath + "\"\n";
+            script += "  uberNrm.name = \"UberBitmap_Normal\"\n";
+
+            script += "  local nrmCol = MultiOutputChannelTexmapToTexmap()\n";
+            script += "  nrmCol.sourceMap = uberNrm\n";
+            script += "  nrmCol.outputChannelIndex = 1\n";
+            script += "  nrmCol.name = \"Normal_Col\"\n";
+
+            script += "  local aiNrm = ai_normal_map()\n";
+            script += "  aiNrm.input_shader = nrmCol\n";
+            script += "  aiNrm.name = \"NormalMap\"\n";
+
+            script += "  local aiBump = ai_bump2d()\n";
+            script += "  aiBump.bump_map_shader = aiNrm\n";
+            script += "  aiBump.name = \"Bump2D\"\n";
+
+            script += "  arnoldMat.normal_shader = aiBump\n";
+        }
+
+        // --- Shell_Material ---
+        script += "  local shellMat = Shell_Material()\n";
+        script += "  shellMat.name = \"" + eShellName + "\"\n";
+        script += "  shellMat.originalMaterial = arnoldMat\n";
+        script += "  if gltfMat != undefined do shellMat.bakedMaterial = gltfMat\n";
+        script += "  shellMat.renderMtlIndex = 0\n";
+        script += "  shellMat.viewportMtlIndex = 1\n";
+
+        // --- Assign to objects ---
+        script += "  local assignCount = 0\n";
+        script += "  local notFoundNames = #()\n";
+        if (!assignTo.empty()) {
+            script += "  local targetNames = #(";
+            for (size_t i = 0; i < assignTo.size(); i++) {
+                if (i > 0) script += ", ";
+                script += "\"" + JsonEscape(assignTo[i]) + "\"";
+            }
+            script += ")\n";
+            script += "  for n in targetNames do (\n";
+            script += "    local obj = getNodeByName n\n";
+            script += "    if obj != undefined then (\n";
+            script += "      obj.material = shellMat\n";
+            script += "      assignCount += 1\n";
+            script += "    ) else (\n";
+            script += "      append notFoundNames n\n";
+            script += "    )\n";
+            script += "  )\n";
+        }
+
+        // --- Build result string ---
+        script += "  local gltfStatus = if gltfMat != undefined then (\"found: \" + gltfMat.name) else \"not found\"\n";
+        script += "  local hasNormal = ";
+        script += (normalPath.empty() ? "false" : "true");
+        script += "\n";
+        script += "  local resultStr = \"{\" +\n";
+        script += "    \"\\\"shell\\\":\\\"\" + shellMat.name + \"\\\",\" +\n";
+        script += "    \"\\\"arnold\\\":\\\"\" + arnoldMat.name + \"\\\",\" +\n";
+        script += "    \"\\\"gltf\\\":\\\"\" + gltfStatus + \"\\\",\" +\n";
+        script += "    \"\\\"hasNormal\\\":\" + (if hasNormal then \"true\" else \"false\") + \",\" +\n";
+        script += "    \"\\\"assignedCount\\\":\" + (assignCount as string) + \",\" +\n";
+        script += "    \"\\\"notFoundCount\\\":\" + (notFoundNames.count as string) +\n";
+        script += "    \"}\"\n";
+        script += "  resultStr\n";
+        script += ")\n";
+
+        std::string result = RunMAXScript(script);
+
+        Interface* ip = GetCOREInterface();
+        ip->RedrawViews(ip->GetTime());
+
+        return result;
+    });
+}

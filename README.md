@@ -116,6 +116,11 @@ mklink /D "%USERPROFILE%\.claude\skills\3dsmax-mcp-dev" "C:\path\to\3dsmax-mcp\s
 mklink /D "%USERPROFILE%\.agents\skills\3dsmax-mcp-dev" "C:\path\to\3dsmax-mcp\skills\3dsmax-mcp-dev"
 ```
 
+## Skill notice
+
+Codex usually activates the skill automatically but Claude requires manual activation via prompt (activate 3dsmax skill) but you can use "claude.md" or memory file.
+
+
 ## Safe mode
 
 The MAXScript listener runs with safe mode ON by default. Blocked operations:

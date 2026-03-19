@@ -269,6 +269,8 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::SetMaterialProperties(command, gup);
         } else if (cmd_type == "native:set_material_verified") {
             result = NativeHandlers::SetMaterialVerified(command, gup);
+        } else if (cmd_type == "native:create_shell_material") {
+            result = NativeHandlers::CreateShellMaterial(command, gup);
         // Plugin enumeration
         } else if (cmd_type == "native:list_plugin_classes") {
             result = NativeHandlers::ListPluginClasses(command, gup);

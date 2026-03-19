@@ -29,6 +29,7 @@ _IMAGE_EXTENSIONS = {
 _DEFAULT_CHANNEL_PATTERNS: dict[str, list[str]] = {
     "diffuse":       ["_basecolor", "_base_color", "_albedo", "_diffuse", "_diff", "_color", "_col"],
     "ao":            ["_ambientocclusion", "_occlusion", "_ao"],
+    "orm":           ["_occlusionroughnessmetallic", "_orm"],
     "roughness":     ["_roughness", "_rough"],
     "glossiness":    ["_glossiness", "_gloss"],
     "metallic":      ["_metallic", "_metalness", "_metal"],
@@ -1397,3 +1398,224 @@ def create_material_from_textures(
     # -- Step 6: Send to Max --
     response = client.send_command(maxscript)
     return response.get("result", "")
+
+
+# ---------------------------------------------------------------------------
+# UberBitmap + Shell Material helpers
+# ---------------------------------------------------------------------------
+
+_UBER_BITMAP_OSL = None  # Resolved dynamically via MAXScript: (getDir #maxRoot) + "OSL\\UberBitmap2.osl"
+# MultiOutputChannelTexmapToTexmap output indices for UberBitmap2:
+#   1=Col(RGB), 2=R, 3=G, 4=B, 5=A, 6=Luminance, 7=Average
+_UBER_OUT_COL = 1
+_UBER_OUT_R = 2
+_UBER_OUT_G = 3
+_UBER_OUT_B = 4
+
+
+def _ms_uber_bitmap(var: str, name: str, filepath: str) -> list[str]:
+    """Generate MAXScript lines to create a UberBitmap OSLMap."""
+    fp = filepath.replace("\\", "/")
+    return [
+        f'{var} = OSLMap()',
+        f'{var}.name = "{name}"',
+        f'{var}.OSLPath = oslPath',
+        f'{var}.OSLAutoUpdate = true',
+        f'{var}.filename = "{fp}"',
+    ]
+
+
+def _ms_channel_selector(var: str, source_var: str, output_index: int) -> list[str]:
+    """Generate MAXScript lines for a MultiOutputChannelTexmapToTexmap."""
+    return [
+        f'{var} = MultiOutputChannelTexmapToTexmap()',
+        f'{var}.sourceMap = {source_var}',
+        f'{var}.outputChannelIndex = {output_index}',
+    ]
+
+
+def _build_shell_maxscript(
+    shell_name: str,
+    render_name: str,
+    base_color_path: str,
+    orm_path: str,
+    normal_path: str | None,
+    gltf_material_name: str | None,
+    assign_to: list[str] | None,
+) -> str:
+    """Build MAXScript for Shell Material with UberBitmap RGB split Arnold setup."""
+    lines: list[str] = []
+    safe_shell = safe_string(shell_name)
+    safe_render = safe_string(render_name)
+
+    # Resolve UberBitmap OSL path dynamically from Max install
+    lines.append('oslPath = (getDir #maxRoot) + "OSL\\\\UberBitmap2.osl"')
+
+    # Find existing glTF material from scene
+    if gltf_material_name:
+        safe_gltf = safe_string(gltf_material_name)
+        lines.append(f'gltfMat = undefined')
+        lines.append(f'for obj in objects where obj.material != undefined do (')
+        lines.append(f'    if obj.material.name == "{safe_gltf}" do (gltfMat = obj.material; exit)')
+        lines.append(f')')
+        # Also check inside Shell Materials for the glTF mat
+        lines.append(f'if gltfMat == undefined do (')
+        lines.append(f'    for obj in objects where obj.material != undefined do (')
+        lines.append(f'        if (classOf obj.material) as string == "Shell_Material" and obj.material.bakedMaterial != undefined do (')
+        lines.append(f'            if obj.material.bakedMaterial.name == "{safe_gltf}" do (gltfMat = obj.material.bakedMaterial; exit)')
+        lines.append(f'        )')
+        lines.append(f'    )')
+        lines.append(f')')
+
+    # Create UberBitmap for BaseColor
+    lines.extend(_ms_uber_bitmap("uberBC", f"{safe_render}_diffuse", base_color_path))
+
+    # Create UberBitmap for ORM
+    lines.extend(_ms_uber_bitmap("uberORM", f"{safe_render}_orm", orm_path))
+
+    # Channel selectors from BaseColor
+    lines.extend(_ms_channel_selector("bcCol", "uberBC", _UBER_OUT_COL))
+
+    # Channel selectors from ORM: R=AO, G=Roughness, B=Metalness
+    lines.extend(_ms_channel_selector("ormR", "uberORM", _UBER_OUT_R))
+    lines.extend(_ms_channel_selector("ormG", "uberORM", _UBER_OUT_G))
+    lines.extend(_ms_channel_selector("ormB", "uberORM", _UBER_OUT_B))
+
+    # ai_multiply: diffuse × AO
+    lines.append(f'mult = ai_multiply()')
+    lines.append(f'mult.name = "{safe_render}_multiply"')
+    lines.append(f'mult.input1_shader = bcCol')
+    lines.append(f'mult.input2_shader = ormR')
+
+    # Arnold Standard Surface
+    lines.append(f'arnoldMat = ai_standard_surface()')
+    lines.append(f'arnoldMat.name = "{safe_render}"')
+    lines.append(f'arnoldMat.base_color_shader = mult')
+    lines.append(f'arnoldMat.specular_roughness_shader = ormG')
+    lines.append(f'arnoldMat.metalness_shader = ormB')
+
+    # Normal map (optional)
+    if normal_path:
+        lines.extend(_ms_uber_bitmap("uberNrm", f"{safe_render}_normal", normal_path))
+        lines.extend(_ms_channel_selector("nrmCol", "uberNrm", _UBER_OUT_COL))
+        lines.append(f'nrmMap = ai_normal_map()')
+        lines.append(f'nrmMap.name = "{safe_render}_nrm"')
+        lines.append(f'nrmMap.input_shader = nrmCol')
+        lines.append(f'bmpNode = ai_bump2d()')
+        lines.append(f'bmpNode.name = "{safe_render}_bump"')
+        lines.append(f'bmpNode.normal_shader = nrmMap')
+        lines.append(f'arnoldMat.normal_shader = bmpNode')
+
+    # Shell Material
+    lines.append(f'shell = Shell_Material()')
+    lines.append(f'shell.name = "{safe_shell}"')
+    lines.append(f'shell.originalMaterial = arnoldMat')
+    if gltf_material_name:
+        lines.append(f'if gltfMat != undefined do shell.bakedMaterial = gltfMat')
+    lines.append(f'shell.renderMtlIndex = 0')
+    lines.append(f'shell.viewportMtlIndex = 1')
+
+    # Assign to objects
+    lines.append(f'assignCount = 0')
+    if assign_to:
+        names_arr = "#(" + ", ".join(f'"{safe_string(n)}"' for n in assign_to) + ")"
+        lines.append(f'nameList = {names_arr}')
+        lines.append(f'for n in nameList do (obj = getNodeByName n; if obj != undefined then (obj.material = shell; assignCount += 1))')
+    elif gltf_material_name:
+        # Auto-assign to all objects using the glTF material
+        lines.append(f'if gltfMat != undefined do (')
+        lines.append(f'    for obj in objects where obj.material != undefined do (')
+        lines.append(f'        if obj.material == gltfMat or obj.material.name == "{safe_gltf}" do (')
+        lines.append(f'            obj.material = shell; assignCount += 1')
+        lines.append(f'        )')
+        lines.append(f'    )')
+        lines.append(f')')
+
+    # Build result JSON
+    lines.append(f'resultJson = "{{"')
+    lines.append(f'resultJson += "\\"shell_name\\":\\"" + shell.name + "\\","')
+    lines.append(f'resultJson += "\\"render_material\\":\\"" + arnoldMat.name + "\\","')
+    if gltf_material_name:
+        lines.append(f'resultJson += "\\"gltf_material\\":\\"" + (if gltfMat != undefined then gltfMat.name else "not_found") + "\\","')
+    lines.append(f'resultJson += "\\"assigned_count\\":" + (assignCount as string) + ","')
+    lines.append(f'resultJson += "\\"status\\":\\"success\\""')
+    lines.append(f'resultJson += "}}"')
+    lines.append(f'resultJson')
+
+    return "(\n    " + "\n    ".join(lines) + "\n)"
+
+
+@mcp.tool()
+def create_shell_material(
+    shell_name: str,
+    render_material_name: str,
+    base_color_path: str,
+    orm_path: str,
+    normal_path: str = "",
+    gltf_material_name: str = "",
+    assign_to: list[str] | None = None,
+) -> str:
+    """Create a Shell Material with UberBitmap-based Arnold render slot and glTF export slot.
+
+    Builds a dual-pipeline material: Arnold ai_standard_surface for rendering
+    (originalMaterial, slot 0) and an existing glTF Material for export
+    (bakedMaterial, slot 1).
+
+    The Arnold material uses UberBitmap2 OSL maps with RGB channel splitting
+    via MultiOutputChannelTexmapToTexmap for packed ORM textures:
+    - BaseColor UberBitmap Col(RGB) × ORM R(AO) via ai_multiply → base_color
+    - ORM G → specular_roughness
+    - ORM B → metalness
+    - Optional: Normal UberBitmap → ai_normal_map → ai_bump2d → normal
+
+    Args:
+        shell_name: Name for the Shell Material (e.g. "m_mouse_shell").
+        render_material_name: Name for the Arnold material (e.g. "mouse_real").
+        base_color_path: Path to the BaseColor texture file.
+        orm_path: Path to the OcclusionRoughnessMetallic packed texture file.
+        normal_path: Optional path to the Normal map texture file.
+        gltf_material_name: Name of an existing glTF Material in scene to use
+                            as the baked/export slot. If empty, baked slot is left empty.
+        assign_to: Optional list of object names to assign the shell to.
+                   If empty but gltf_material_name is set, auto-assigns to all
+                   objects currently using that glTF material.
+
+    Returns:
+        JSON with shell_name, render_material, gltf_material, assigned_count, status.
+    """
+    if client.native_available:
+        try:
+            payload = json.dumps({
+                "name": shell_name,
+                "render_material_name": render_material_name,
+                "base_color_path": base_color_path,
+                "orm_path": orm_path,
+                "normal_path": normal_path,
+                "gltf_material_name": gltf_material_name,
+                "assign_to": assign_to or [],
+            })
+            response = client.send_command(payload, cmd_type="native:create_shell_material")
+            return response.get("result", "{}")
+        except RuntimeError:
+            pass
+
+    maxscript = _build_shell_maxscript(
+        shell_name=shell_name,
+        render_name=render_material_name,
+        base_color_path=base_color_path,
+        orm_path=orm_path,
+        normal_path=normal_path or None,
+        gltf_material_name=gltf_material_name or None,
+        assign_to=assign_to,
+    )
+
+    maxscript = f"""(
+    try (
+        {maxscript}
+    ) catch (
+        "{{\\"status\\":\\"error\\",\\"error\\":\\"" + (getCurrentException()) + "\\"}}"
+    )
+)"""
+
+    response = client.send_command(maxscript)
+    return response.get("result", "{}")
