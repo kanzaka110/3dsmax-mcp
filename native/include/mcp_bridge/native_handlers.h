@@ -81,4 +81,10 @@ namespace NativeHandlers {
     std::string ManageLayers(const std::string& params, MCPBridgeGUP* gup);
     std::string ManageGroups(const std::string& params, MCPBridgeGUP* gup);
     std::string ManageSelectionSets(const std::string& params, MCPBridgeGUP* gup);
+
+    // Deep SDK learning
+    std::string WalkReferences(const std::string& params, MCPBridgeGUP* gup);
+    std::string MapClassRelationships(const std::string& params, MCPBridgeGUP* gup);
+    std::string LearnScenePatterns(const std::string& params, MCPBridgeGUP* gup);
+    std::string WatchScene(const std::string& params, MCPBridgeGUP* gup);
 }

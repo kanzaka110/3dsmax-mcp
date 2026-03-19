@@ -32,6 +32,7 @@ set(SOURCES
     src/handlers/controller_handlers.cpp
     src/handlers/plugin_introspect_handlers.cpp
     src/handlers/organize_handlers.cpp
+    src/handlers/learning_handlers.cpp
 )
 
 add_library(mcp_bridge SHARED ${SOURCES})

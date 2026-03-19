@@ -293,6 +293,15 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::ManageGroups(command, gup);
         } else if (cmd_type == "native:manage_selection_sets") {
             result = NativeHandlers::ManageSelectionSets(command, gup);
+        // Deep SDK learning
+        } else if (cmd_type == "native:walk_references") {
+            result = NativeHandlers::WalkReferences(command, gup);
+        } else if (cmd_type == "native:map_class_relationships") {
+            result = NativeHandlers::MapClassRelationships(command, gup);
+        } else if (cmd_type == "native:learn_scene_patterns") {
+            result = NativeHandlers::LearnScenePatterns(command, gup);
+        } else if (cmd_type == "native:watch_scene") {
+            result = NativeHandlers::WatchScene(command, gup);
         } else {
             throw std::runtime_error("Unknown command type: " + cmd_type);
         }

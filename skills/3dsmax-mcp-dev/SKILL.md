@@ -37,6 +37,44 @@ When encountering an unfamiliar class, plugin, or object — **use C++ SDK intro
 - `introspect_instance` reads the entire material tree in one call — every param, every texmap slot, all sub-materials with current values
 - Use for renderer conversion workflows: read source material tree → map params → write to new material
 
+**Deep SDK learning tools:**
+
+These tools let you understand how 3ds Max works at the deepest level — class relationships, real-world usage patterns, reference graphs, and live events.
+
+1. **`learn_scene_patterns`** — Analyze the current scene in one call. Returns frequency-sorted data on:
+   - Which geometry/material/modifier/texmap classes are used and how often
+   - Common modifier stacks (e.g. "TurboSmooth | Skin | Skin Wrap" = character deform pipeline)
+   - Material-to-geometry associations (e.g. "Shell Material → PolyMeshObject" = export pipeline)
+   - Texture-to-material connections (e.g. "Bitmap → Physical Material")
+   - **Use first** when opening an unfamiliar scene — instantly understand the entire production setup
+
+2. **`walk_references`** — Walk the SDK reference graph from any object. Shows how materials, modifiers, controllers, and textures connect through Max's reference system.
+   - Use to understand shader networks: "this Shell Material references Standard Surface + Physical Material"
+   - Use to debug why changing one object affects another
+   - `max_depth` controls detail (default 4, max 8)
+
+3. **`map_class_relationships`** — Scan DLL directory to find which classes accept which reference types via ParamBlock2 params.
+   - Shows "Physical Material accepts texturemaps in these slots: base_color_map, bump_map, ..."
+   - Shows "Forest_Pro accepts nodes + texturemaps"
+   - Filter by superclass or name pattern
+   - **Use before wiring** — know which slots exist without guessing
+
+4. **`watch_scene`** — Live event streaming from 3ds Max. Registers native SDK callbacks for:
+   - node created/deleted, selection changes, modifier added
+   - material assigned, file open, undo/redo, render start/end
+   - Actions: `start`, `stop`, `get` (poll events), `clear`, `status`
+   - Use `since=<timestamp>` for incremental polling
+   - **Use during iterative work** — track what the user does between your calls
+
+**Learning workflow for new scenes:**
+```
+1. learn_scene_patterns                           → understand the whole scene
+2. walk_references name:"MainCharacter"           → map one object's dependencies
+3. introspect_instance name:"MainCharacter"       → get live param values
+4. map_class_relationships superclass:"material"  → learn what plugs into what
+5. Now you understand the scene deeply — proceed with edits
+```
+
 ## 2. Default Workflow
 
 1. **Context** — `get_bridge_status`, `get_session_context`, `inspect_active_target`
