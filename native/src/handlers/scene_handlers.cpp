@@ -1,6 +1,8 @@
 #include "mcp_bridge/native_handlers.h"
 #include "mcp_bridge/handler_helpers.h"
 #include "mcp_bridge/bridge_gup.h"
+#include <cmath>
+#include <map>
 #include <set>
 
 using json = nlohmann::json;
@@ -428,5 +430,169 @@ std::string NativeHandlers::GetHierarchy(const std::string& params, MCPBridgeGUP
         }
 
         return BuildHierarchy(node, t, 0, 10).dump();
+    });
+}
+
+// ═════════════════════════════════════════════════════════════════
+// native:scene_delta — track changes between calls
+// ═════════════════════════════════════════════════════════════════
+
+struct NodeState {
+    std::string className;
+    float px, py, pz;
+    std::string material;
+    int modifierCount;
+    bool hidden;
+};
+
+struct SceneDeltaBaseline {
+    std::map<std::string, NodeState> snapshot;
+    unsigned long long epoch;
+};
+
+static std::map<std::string, SceneDeltaBaseline> g_sceneDeltaSessions;
+static unsigned long long g_sceneDeltaEpoch = 1;
+
+static std::string NormalizeSceneDeltaSessionId(const std::string& session_id) {
+    return session_id.empty() ? "__default__" : session_id;
+}
+
+static float RoundSceneDeltaPosition(float value) {
+    return std::nearbyint(value * 10.0f) / 10.0f;
+}
+
+static std::map<std::string, NodeState> CaptureSceneState(Interface* ip) {
+    std::map<std::string, NodeState> state;
+    TimeValue t = ip->GetTime();
+    INode* root = ip->GetRootNode();
+    std::vector<INode*> nodes;
+    CollectNodes(root, nodes);
+
+    for (INode* n : nodes) {
+        std::string name = WideToUtf8(n->GetName());
+        NodeState ns;
+        ns.className = NodeClassName(n);
+
+        Matrix3 tm = n->GetNodeTM(t);
+        Point3 pos = tm.GetTrans();
+        ns.px = pos.x; ns.py = pos.y; ns.pz = pos.z;
+
+        Mtl* mtl = n->GetMtl();
+        ns.material = mtl ? WideToUtf8(mtl->GetName().data()) : "";
+
+        ns.modifierCount = 0;
+        Object* objRef = n->GetObjectRef();
+        if (objRef && objRef->SuperClassID() == GEN_DERIVOB_CLASS_ID) {
+            IDerivedObject* dobj = (IDerivedObject*)objRef;
+            ns.modifierCount = dobj->NumModifiers();
+        }
+
+        ns.hidden = n->IsHidden() != 0;
+        state[name] = ns;
+    }
+    return state;
+}
+
+void NativeHandlers::ResetSceneDeltaSessions() {
+    g_sceneDeltaSessions.clear();
+    g_sceneDeltaEpoch++;
+}
+
+void NativeHandlers::ReleaseSceneDeltaSession(const std::string& session_id) {
+    g_sceneDeltaSessions.erase(NormalizeSceneDeltaSessionId(session_id));
+}
+
+std::string NativeHandlers::SceneDelta(
+    const std::string& params,
+    MCPBridgeGUP* gup,
+    const std::string& session_id) {
+    return gup->GetExecutor().ExecuteSync([&params, &session_id]() -> std::string {
+        json p = params.empty() ? json::object() : json::parse(params, nullptr, false);
+        bool forceCapture = p.value("capture", false);
+        const std::string sessionKey = NormalizeSceneDeltaSessionId(session_id);
+
+        Interface* ip = GetCOREInterface();
+        auto current = CaptureSceneState(ip);
+        auto existing = g_sceneDeltaSessions.find(sessionKey);
+
+        if (forceCapture ||
+            existing == g_sceneDeltaSessions.end() ||
+            existing->second.epoch != g_sceneDeltaEpoch) {
+            g_sceneDeltaSessions[sessionKey] = {current, g_sceneDeltaEpoch};
+            json result;
+            result["baseline"] = true;
+            result["objectCount"] = (int)current.size();
+            return result.dump();
+        }
+
+        auto& previous = existing->second.snapshot;
+
+        // Diff
+        json added = json::array();
+        json removed = json::array();
+        json modified = json::array();
+
+        // Find added and modified
+        for (auto& [name, cur] : current) {
+            auto it = previous.find(name);
+            if (it == previous.end()) {
+                added.push_back({{"name", name}, {"class", cur.className}});
+            } else {
+                auto& prev = it->second;
+                json changes = json::object();
+
+                if (prev.className != cur.className)
+                    changes["class"] = {{"from", prev.className}, {"to", cur.className}};
+
+                // Round to 0.1 for position comparison
+                if (RoundSceneDeltaPosition(prev.px) != RoundSceneDeltaPosition(cur.px) ||
+                    RoundSceneDeltaPosition(prev.py) != RoundSceneDeltaPosition(cur.py) ||
+                    RoundSceneDeltaPosition(prev.pz) != RoundSceneDeltaPosition(cur.pz))
+                    changes["position"] = {
+                        {"from", json::array({prev.px, prev.py, prev.pz})},
+                        {"to", json::array({cur.px, cur.py, cur.pz})}
+                    };
+
+                if (prev.material != cur.material)
+                    changes["material"] = {
+                        {"from", prev.material.empty() ? json(nullptr) : json(prev.material)},
+                        {"to", cur.material.empty() ? json(nullptr) : json(cur.material)}
+                    };
+
+                if (prev.modifierCount != cur.modifierCount)
+                    changes["modifierCount"] = {{"from", prev.modifierCount}, {"to", cur.modifierCount}};
+
+                if (prev.hidden != cur.hidden)
+                    changes["hidden"] = {{"from", prev.hidden}, {"to", cur.hidden}};
+
+                if (!changes.empty()) {
+                    changes["name"] = name;
+                    modified.push_back(changes);
+                }
+            }
+        }
+
+        // Find removed
+        for (auto& [name, prev] : previous) {
+            if (current.find(name) == current.end()) {
+                removed.push_back({{"name", name}, {"class", prev.className}});
+            }
+        }
+
+        // Update baseline
+        existing->second.snapshot = current;
+        existing->second.epoch = g_sceneDeltaEpoch;
+
+        json result;
+        result["added"] = added;
+        result["removed"] = removed;
+        result["modified"] = modified;
+        result["counts"] = {
+            {"added", added.size()},
+            {"removed", removed.size()},
+            {"modified", modified.size()},
+            {"total", (int)current.size()}
+        };
+        return result.dump();
     });
 }

@@ -5,5 +5,9 @@ class MCPBridgeGUP;
 
 namespace CommandDispatcher {
     // Takes raw JSON request string, returns JSON response string.
-    std::string Dispatch(const std::string& json_request, MCPBridgeGUP* gup);
+    std::string Dispatch(
+        const std::string& json_request,
+        MCPBridgeGUP* gup,
+        const std::string& client_session_id = ""
+    );
 }

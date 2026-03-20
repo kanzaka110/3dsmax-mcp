@@ -150,7 +150,9 @@ static std::string HandlePing(MCPBridgeGUP* gup) {
 
 // ── Dispatcher ──────────────────────────────────────────────────
 std::string CommandDispatcher::Dispatch(
-    const std::string& json_request, MCPBridgeGUP* gup) {
+    const std::string& json_request,
+    MCPBridgeGUP* gup,
+    const std::string& client_session_id) {
 
     auto start = std::chrono::steady_clock::now();
 
@@ -190,6 +192,8 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::FindClassInstances(command, gup);
         } else if (cmd_type == "native:get_hierarchy") {
             result = NativeHandlers::GetHierarchy(command, gup);
+        } else if (cmd_type == "native:scene_delta") {
+            result = NativeHandlers::SceneDelta(command, gup, client_session_id);
         // Phase 1: Object operations
         } else if (cmd_type == "native:get_object_properties") {
             result = NativeHandlers::GetObjectProperties(command, gup);

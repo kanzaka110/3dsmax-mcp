@@ -11,6 +11,13 @@ namespace NativeHandlers {
     std::string SelectionSnapshot(const std::string& params, MCPBridgeGUP* gup);
     std::string FindClassInstances(const std::string& params, MCPBridgeGUP* gup);
     std::string GetHierarchy(const std::string& params, MCPBridgeGUP* gup);
+    std::string SceneDelta(
+        const std::string& params,
+        MCPBridgeGUP* gup,
+        const std::string& session_id = ""
+    );
+    void ResetSceneDeltaSessions();
+    void ReleaseSceneDeltaSession(const std::string& session_id);
 
     // Phase 1: Object operations
     std::string GetObjectProperties(const std::string& params, MCPBridgeGUP* gup);

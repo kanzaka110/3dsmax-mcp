@@ -257,6 +257,19 @@ def get_scene_delta(capture: bool = False) -> str:
     Args:
         capture: Force a fresh baseline capture without returning a delta.
     """
+    if client.native_available:
+        try:
+            params = {}
+            if capture:
+                params["capture"] = True
+            response = client.send_command(
+                json.dumps(params) if params else "",
+                cmd_type="native:scene_delta",
+            )
+            return response.get("result", "{}")
+        except RuntimeError:
+            pass
+
     global _previous_snapshot
     current = _capture_scene_state()
 

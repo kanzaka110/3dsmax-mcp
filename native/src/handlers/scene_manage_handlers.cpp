@@ -109,10 +109,12 @@ std::string NativeHandlers::ManageScene(const std::string& params, MCPBridgeGUP*
         }
         if (action == "fetch") {
             ip->FileFetch();
+            NativeHandlers::ResetSceneDeltaSessions();
             return "Fetched (restored) held state";
         }
         if (action == "reset") {
             ip->FileReset(FALSE); // FALSE = no prompt
+            NativeHandlers::ResetSceneDeltaSessions();
             return "Scene reset to empty";
         }
         if (action == "save") {

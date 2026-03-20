@@ -75,7 +75,53 @@ These tools let you understand how 3ds Max works at the deepest level — class 
 5. Now you understand the scene deeply — proceed with edits
 ```
 
-## 2. Default Workflow
+## 2. Plugin & Tool Development (SDK Learning)
+
+When the user is developing a tool, plugin, or automating a workflow and you need to understand SDK classes, parameters, or how things connect — **use native introspection, not documentation or guesswork.**
+
+**Learning an unknown class or API:**
+```
+1. discover_plugin_classes pattern:"*ClassName*"   → find it in the DLL registry
+2. introspect_class class_name:"ClassName"          → get ALL params, types, defaults, ranges, functions
+3. map_class_relationships pattern:"ClassName"      → see what it accepts (nodes, materials, texmaps)
+```
+
+**Understanding how a live object works:**
+```
+1. introspect_instance name:"ObjectName"            → every param with current value
+2. walk_references name:"ObjectName"                → full dependency graph (materials → textures → controllers)
+3. introspect_instance name:"ObjectName" include_subanims:true → animation/controller tree
+```
+
+**Testing changes and verifying results:**
+```
+1. get_scene_delta capture:true                     → capture baseline
+2. (make changes — create objects, assign materials, add modifiers)
+3. get_scene_delta                                  → see exactly what changed (added/removed/modified with before/after values)
+```
+
+**Reverse-engineering a production scene:**
+```
+1. learn_scene_patterns                             → modifier stacks, material combos, class frequencies
+2. walk_references name:"KeyObject"                 → map its dependency tree
+3. map_class_relationships superclass:"material"    → learn all material slot wiring possibilities
+```
+
+**Watching user actions in real-time:**
+```
+1. watch_scene action:"start"                       → enable event tracking
+2. (user works in Max — creates, selects, modifies)
+3. watch_scene action:"get"                         → see every action with full detail
+```
+
+**Rules:**
+- NEVER guess parameter names — use `introspect_class` to get the exact names, types, and ranges
+- NEVER assume slot connections — use `map_class_relationships` to see what plugs into what
+- NEVER skip verification — use `get_scene_delta` after mutations to confirm what actually changed
+- When writing MAXScript that targets a specific class, introspect it first to get correct property names
+- When building a C++ native handler, use `introspect_class` to understand the ParamBlock2 layout before writing SetValue calls
+
+## 3. Default Workflow
 
 1. **Context** — `get_bridge_status`, `get_session_context`, `inspect_active_target`
 2. **Inspect** — `introspect_instance` (preferred) or `inspect_object` + `get_material_slots`
@@ -87,7 +133,7 @@ These tools let you understand how 3ds Max works at the deepest level — class 
 - `add_modifier_verified`, `transform_object_verified`, `set_modifier_state_verified`
 - `set_object_property_verified`
 
-## 3. Scene Organization (Pure C++ SDK)
+## 4. Scene Organization (Pure C++ SDK)
 
 **Layers** — `manage_layers`:
 - Actions: `list`, `create`, `delete`, `set_current`, `set_properties`, `add_objects`, `select_objects`
@@ -99,7 +145,7 @@ These tools let you understand how 3ds Max works at the deepest level — class 
 **Named Selection Sets** — `manage_selection_sets`:
 - Actions: `list`, `create`, `delete`, `select`, `replace`
 
-## 4. Tool Reference
+## 5. Tool Reference
 
 ### Scene reads
 `get_scene_info` `get_selection` `get_scene_snapshot` `get_selection_snapshot` `get_scene_delta` `get_hierarchy`
@@ -161,7 +207,7 @@ These tools let you understand how 3ds Max works at the deepest level — class 
 - `manage_scene` (hold/fetch/reset/save/info)
 - `get_state_sets`, `get_camera_sequence`
 
-## 5. When to Use `execute_maxscript`
+## 6. When to Use `execute_maxscript`
 
 Only when no dedicated tool exists:
 - Quick experiments, animation keyframing, render/environment settings
@@ -169,7 +215,7 @@ Only when no dedicated tool exists:
 
 Never as default when a proper tool exists.
 
-## 6. MAXScript Pitfalls
+## 7. MAXScript Pitfalls
 
 - **No parens with keyword args**: `Box width:10` not `Box() width:10`
 - **Case-insensitive** but avoid ambiguous short names
@@ -198,7 +244,7 @@ Never as default when a proper tool exists.
 - OSLMap lowercases all param names — use lowercase keys
 - After creation, wire via `set_material_property`
 
-## 7. C++ SDK Pitfalls
+## 8. C++ SDK Pitfalls
 
 - `is_array()` macro collision with MAXScript headers — use `.type() == json::value_t::array`
 - `Matrix3(1)` deprecated in Max 2026 — use `Matrix3()` default
@@ -206,8 +252,9 @@ Never as default when a proper tool exists.
 - `ClassDesc::ClassName()` returns `const MCHAR*`, not a string class
 - Arnold/scripted plugins don't register in DllDir under MAXScript names — fall back to `RunMAXScript` for creation
 - `WStr::operator bool` deleted in Max 2026 — use `.data() && .data()[0]` checks
+- Native scene-delta baselines must be scoped per pipe client and cleared on scene reset/fetch; one process-global snapshot leaks across simultaneous agents and unrelated scenes.
 
-## 8. Architecture
+## 9. Architecture
 
 ```
 Agent <-> FastMCP (Python/stdio) <-> Named Pipe <-> C++ GUP Plugin <-> 3ds Max SDK

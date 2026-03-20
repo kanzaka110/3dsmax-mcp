@@ -1,6 +1,7 @@
 #include "mcp_bridge/pipe_server.h"
 #include "mcp_bridge/bridge_gup.h"
 #include "mcp_bridge/command_dispatcher.h"
+#include "mcp_bridge/native_handlers.h"
 
 PipeServer::PipeServer(MCPBridgeGUP* gup) : gup_(gup) {
     shutdown_event_ = CreateEvent(nullptr, TRUE, FALSE, nullptr);
@@ -121,13 +122,17 @@ void PipeServer::AcceptLoop() {
 }
 
 void PipeServer::HandleClient(HANDLE pipe) {
+    static std::atomic<unsigned long long> next_client_id{1};
+    const std::string client_id =
+        "pipe-" + std::to_string(next_client_id.fetch_add(1));
+
     while (running_.load()) {
         std::string request = ReadRequest(pipe);
-        if (request.empty()) return;
+        if (request.empty()) break;
 
         std::string response;
         try {
-            response = CommandDispatcher::Dispatch(request, gup_);
+            response = CommandDispatcher::Dispatch(request, gup_, client_id);
         } catch (const std::exception& e) {
             response = "{\"success\":false,\"error\":\"Internal bridge error: ";
             std::string msg = e.what();
@@ -141,9 +146,11 @@ void PipeServer::HandleClient(HANDLE pipe) {
         }
 
         if (!WriteResponse(pipe, response)) {
-            return;
+            break;
         }
     }
+
+    NativeHandlers::ReleaseSceneDeltaSession(client_id);
 }
 
 std::string PipeServer::ReadRequest(HANDLE pipe) {
