@@ -85,6 +85,7 @@ When the user is developing a tool, plugin, or automating a workflow and you nee
 2. introspect_class class_name:"ClassName"          → get ALL params, types, defaults, ranges, functions
 3. map_class_relationships pattern:"ClassName"      → see what it accepts (nodes, materials, texmaps)
 ```
+NOTE: Arnold materials (ai_standard_surface, etc.) are scripted plugins — `discover_plugin_classes` and `introspect_class` won't find them. Create via MAXScript: `ai_standard_surface()`. Use `inspect_plugin_class` for MAXScript reflection instead.
 
 **Understanding how a live object works:**
 ```
@@ -233,6 +234,8 @@ Never as default when a proper tool exists.
 ### UberBitmap + Shell Material Workflow
 - `create_shell_material` builds a Shell Material wrapping Arnold (render) + glTF (export)
 - Arnold render slot uses UberBitmap2.osl (OSLMap) for all texture loading — NOT ai_image or Bitmaptexture
+- UberBitmap2.osl path: `(getDir #maxroot) + "OSL\\UberBitmap2.osl"` — do NOT search for it
+- All built-in OSL shaders live in `<maxroot>\OSL\`
 - Packed ORM textures are split via `MultiOutputChannelTexmapToTexmap`:
   - Output 1 = Col (RGB), 2 = R, 3 = G, 4 = B, 5 = A, 6 = Luminance, 7 = Average
 - Standard ORM wiring: BaseColor×AO(R) via `ai_multiply` → base_color, G → specular_roughness, B → metalness
