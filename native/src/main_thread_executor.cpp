@@ -1,5 +1,7 @@
 #include "mcp_bridge/main_thread_executor.h"
 
+thread_local bool MainThreadExecutor::tl_direct_mode_ = false;
+
 MainThreadExecutor::~MainThreadExecutor() {
     Shutdown();
 }
@@ -37,6 +39,12 @@ void MainThreadExecutor::Shutdown() {
 
 std::string MainThreadExecutor::ExecuteSync(
     std::function<std::string()> work, DWORD timeout_ms) {
+
+    // Direct mode: run on calling thread, skip main-thread roundtrip.
+    // Used for read-only handlers on pipe worker threads.
+    if (tl_direct_mode_) {
+        return work();
+    }
 
     if (!hwnd_) {
         throw std::runtime_error("MainThreadExecutor not initialized");

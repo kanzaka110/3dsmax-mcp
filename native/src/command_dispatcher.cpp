@@ -1,8 +1,10 @@
 #include "mcp_bridge/command_dispatcher.h"
 #include "mcp_bridge/bridge_gup.h"
 #include "mcp_bridge/native_handlers.h"
+#include "mcp_bridge/main_thread_executor.h"
 #include <nlohmann/json.hpp>
 #include <chrono>
+#include <unordered_set>
 
 #include <max.h>
 #include <maxapi.h>
@@ -11,6 +13,61 @@
 #include <CoreFunctions.h>
 
 using json = nlohmann::json;
+
+// ── Thread mode classification ──────────────────────────────────
+// Read-only handlers run directly on the pipe worker thread,
+// skipping the main-thread PostMessage roundtrip. ~25 handlers
+// benefit: scene reads, plugin introspection, reference walking.
+// Mutation handlers (create/delete/transform/assign) and MAXScript
+// execution always marshal to the main thread.
+static bool IsDirectHandler(const std::string& cmd_type) {
+    static const std::unordered_set<std::string> kDirect = {
+        // Scene reads
+        "native:scene_info",
+        "native:selection",
+        "native:scene_snapshot",
+        "native:selection_snapshot",
+        "native:find_class_instances",
+        "native:get_hierarchy",
+        "native:scene_delta",
+        // Object reads
+        "native:get_object_properties",
+        "native:inspect_object",
+        "native:inspect_properties",
+        // Material reads
+        "native:get_materials",
+        "native:get_material_slots",
+        // Scene query
+        "native:find_objects_by_property",
+        "native:get_instances",
+        "native:get_dependencies",
+        // Plugin introspection (pure DllDir/ClassDesc reads)
+        "native:list_plugin_classes",
+        "native:discover_classes",
+        "native:introspect_class",
+        "native:introspect_instance",
+        // Controller reads
+        "native:inspect_track_view",
+        "native:list_wireable_params",
+        // Deep SDK learning (read-only scene analysis)
+        "native:walk_references",
+        "native:map_class_relationships",
+        "native:learn_scene_patterns",
+        "native:watch_scene",
+    };
+    return kDirect.count(cmd_type) > 0;
+}
+
+// RAII guard — enables direct mode on construction, disables on destruction
+struct DirectModeGuard {
+    bool active;
+    DirectModeGuard(bool enable) : active(enable) {
+        if (active) MainThreadExecutor::EnableDirectMode();
+    }
+    ~DirectModeGuard() {
+        if (active) MainThreadExecutor::DisableDirectMode();
+    }
+};
 
 // ── UTF-8 <-> Wide helpers ──────────────────────────────────────
 static std::wstring Utf8ToWide(const std::string& s) {
@@ -48,7 +105,8 @@ static std::string BuildResponse(
         {"cmdType", cmd_type},
         {"safeMode", false},
         {"durationMs", duration_ms},
-        {"transport", "namedpipe"}
+        {"transport", "namedpipe"},
+        {"threadMode", MainThreadExecutor::IsDirectMode() ? "direct" : "mainThread"}
     };
     return resp.dump();
 }
@@ -168,7 +226,12 @@ std::string CommandDispatcher::Dispatch(
     std::string cmd_type = req.value("type", "maxscript");
     std::string request_id = req.value("requestId", "");
 
-    // Route to handler
+    // Route to handler — read-only handlers run directly on pipe thread
+    // _forceMainThread flag allows benchmarking the same handler both ways
+    bool forceMain = req.value("_forceMainThread", false);
+    bool direct = !forceMain && IsDirectHandler(cmd_type);
+    DirectModeGuard dmg(direct);
+
     try {
         std::string result;
 
