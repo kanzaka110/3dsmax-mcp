@@ -32,6 +32,11 @@ def replace_material(
     Returns:
         JSON with affected object names, count, and status.
     """
+    if client.native_available:
+        payload = _json.dumps({"source_material": source_material, "target_material": target_material, "preview": preview})
+        response = client.send_command(payload, cmd_type="native:replace_material")
+        return response.get("result", "{}")
+
     safe_src = safe_string(source_material)
     safe_tgt = safe_string(target_material)
 
@@ -122,6 +127,11 @@ def batch_replace_materials(
     Returns:
         JSON with per-replacement results and an overall summary.
     """
+    if client.native_available:
+        payload = _json.dumps({"replacements": list(replacements), "preview": preview})
+        response = client.send_command(payload, cmd_type="native:batch_replace_materials")
+        return response.get("result", "{}")
+
     results = []
     for entry in replacements:
         src = entry.get("source", "")

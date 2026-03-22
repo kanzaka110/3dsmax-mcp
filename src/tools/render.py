@@ -1,3 +1,4 @@
+import json
 from ..server import mcp, client
 
 @mcp.tool()
@@ -16,6 +17,11 @@ def render_scene(
 
     Returns confirmation with the output path or render status.
     """
+    if client.native_available:
+        payload = json.dumps({"width": width, "height": height, "output_path": output_path})
+        response = client.send_command(payload, cmd_type="native:render_scene", timeout=300)
+        return response.get("result", "")
+
     safe_path = output_path.replace("\\", "/")
     output_clause = f'outputFile:"{safe_path}"' if safe_path else ""
     save_msg = f' - saved to: {safe_path}' if safe_path else ""

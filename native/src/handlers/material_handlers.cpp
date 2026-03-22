@@ -542,3 +542,323 @@ std::string NativeHandlers::CreateShellMaterial(const std::string& params, MCPBr
         return result;
     });
 }
+
+// ── native:replace_material ─────────────────────────────────────
+std::string NativeHandlers::ReplaceMaterial(const std::string& params, MCPBridgeGUP* gup) {
+    return gup->GetExecutor().ExecuteSync([&]() -> std::string {
+        json p = json::parse(params);
+        std::string sourceName = p.value("source_material", "");
+        std::string targetName = p.value("target_material", "");
+        bool preview = p.value("preview", false);
+
+        if (sourceName.empty() || targetName.empty())
+            throw std::runtime_error("source_material and target_material are required");
+
+        Interface* ip = GetCOREInterface();
+        INode* root = ip->GetRootNode();
+        std::vector<INode*> all;
+        CollectNodes(root, all);
+
+        // Find source and target material instances by scanning all nodes
+        Mtl* sourceMtl = nullptr;
+        Mtl* targetMtl = nullptr;
+        std::vector<INode*> affectedNodes;
+
+        for (INode* node : all) {
+            Mtl* mtl = node->GetMtl();
+            if (!mtl) continue;
+            std::string mtlName = WideToUtf8(mtl->GetName().data());
+            if (mtlName == sourceName) sourceMtl = mtl;
+            if (mtlName == targetName) {
+                targetMtl = mtl;
+                affectedNodes.push_back(node);
+            }
+        }
+
+        if (!sourceMtl)
+            throw std::runtime_error("Source material '" + sourceName + "' not found in scene");
+
+        json affectedList = json::array();
+        for (INode* n : affectedNodes) {
+            affectedList.push_back(WideToUtf8(n->GetName()));
+        }
+
+        if (preview) {
+            json result;
+            result["source_material"] = sourceName;
+            result["target_material"] = targetName;
+            result["affected_count"] = (int)affectedNodes.size();
+            result["affected_objects"] = affectedList;
+            result["preview"] = true;
+            return result.dump();
+        }
+
+        // Replace: assign source material to all objects that had target
+        for (INode* n : affectedNodes) {
+            n->SetMtl(sourceMtl);
+        }
+
+        ip->RedrawViews(ip->GetTime());
+
+        json result;
+        result["source_material"] = sourceName;
+        result["target_material"] = targetName;
+        result["replaced_count"] = (int)affectedNodes.size();
+        result["replaced_objects"] = affectedList;
+        result["status"] = "replaced";
+        return result.dump();
+    });
+}
+
+// ── native:batch_replace_materials ──────────────────────────────
+std::string NativeHandlers::BatchReplaceMaterials(const std::string& params, MCPBridgeGUP* gup) {
+    return gup->GetExecutor().ExecuteSync([&]() -> std::string {
+        json p = json::parse(params);
+        auto replacements = p.value("replacements", json::array());
+        bool preview = p.value("preview", false);
+
+        Interface* ip = GetCOREInterface();
+        INode* root = ip->GetRootNode();
+        std::vector<INode*> all;
+        CollectNodes(root, all);
+
+        // Build material name -> Mtl* map and name -> nodes map
+        std::map<std::string, Mtl*> mtlMap;
+        std::map<std::string, std::vector<INode*>> mtlNodes;
+
+        for (INode* node : all) {
+            Mtl* mtl = node->GetMtl();
+            if (!mtl) continue;
+            std::string name = WideToUtf8(mtl->GetName().data());
+            mtlMap[name] = mtl;
+            mtlNodes[name].push_back(node);
+        }
+
+        json results = json::array();
+        int totalReplaced = 0;
+
+        for (const auto& rep : replacements) {
+            std::string src = rep.value("source", rep.value("source_material", ""));
+            std::string tgt = rep.value("target", rep.value("target_material", ""));
+
+            json entry;
+            entry["source_material"] = src;
+            entry["target_material"] = tgt;
+
+            if (src.empty() || tgt.empty()) {
+                entry["status"] = "error";
+                entry["error"] = "missing source or target";
+                results.push_back(entry);
+                continue;
+            }
+
+            auto srcIt = mtlMap.find(src);
+            if (srcIt == mtlMap.end()) {
+                entry["status"] = "error";
+                entry["error"] = "source material not found";
+                results.push_back(entry);
+                continue;
+            }
+
+            auto tgtIt = mtlNodes.find(tgt);
+            if (tgtIt == mtlNodes.end() || tgtIt->second.empty()) {
+                entry["replaced_count"] = 0;
+                entry["status"] = preview ? "preview" : "no_objects";
+                results.push_back(entry);
+                continue;
+            }
+
+            json objects = json::array();
+            for (INode* n : tgtIt->second) {
+                objects.push_back(WideToUtf8(n->GetName()));
+                if (!preview) {
+                    n->SetMtl(srcIt->second);
+                }
+            }
+
+            entry["replaced_count"] = (int)tgtIt->second.size();
+            entry["replaced_objects"] = objects;
+            entry["status"] = preview ? "preview" : "replaced";
+            totalReplaced += (int)tgtIt->second.size();
+            results.push_back(entry);
+        }
+
+        if (!preview) {
+            ip->RedrawViews(ip->GetTime());
+        }
+
+        json result;
+        result["results"] = results;
+        result["total_replaced"] = totalReplaced;
+        result["preview"] = preview;
+        return result.dump();
+    });
+}
+
+// ── native:create_texture_map ───────────────────────────────────
+std::string NativeHandlers::CreateTextureMap(const std::string& params, MCPBridgeGUP* gup) {
+    return gup->GetExecutor().ExecuteSync([&]() -> std::string {
+        json p = json::parse(params);
+        std::string mapClass = p.value("map_class", "");
+        std::string mapName = p.value("map_name", "");
+        std::string msParams = p.value("params", "");
+        auto properties = p.value("properties", json::object());
+        std::string globalVar = p.value("global_var", "");
+
+        if (mapClass.empty())
+            throw std::runtime_error("map_class is required");
+
+        // Generate unique global var if not provided
+        if (globalVar.empty()) {
+            globalVar = "__mcp_texmap_" + std::to_string(GetTickCount64());
+        }
+
+        // Create texture map via MAXScript (plugin creation requires it)
+        std::string script = "global " + globalVar + " = " + mapClass + "()";
+        if (!mapName.empty()) {
+            script = "global " + globalVar + " = " + mapClass + " name:\"" + JsonEscape(mapName) + "\"";
+        }
+        if (!msParams.empty()) {
+            // Insert params before closing paren
+            script = "global " + globalVar + " = " + mapClass + " " + msParams;
+            if (!mapName.empty()) {
+                script += " name:\"" + JsonEscape(mapName) + "\"";
+            }
+        }
+
+        RunMAXScript(script);
+
+        // Set properties
+        json setProps = json::array();
+        json errors = json::array();
+        for (auto& [key, val] : properties.items()) {
+            std::string propScript = "try (" + globalVar + "." + key + " = " +
+                                     val.get<std::string>() + "; true) catch (false)";
+            std::string r = RunMAXScript(propScript);
+            if (r == "true") {
+                setProps.push_back(key);
+            } else {
+                errors.push_back(key);
+            }
+        }
+
+        json result;
+        result["status"] = "created";
+        result["global_var"] = globalVar;
+        result["map_class"] = mapClass;
+        if (!mapName.empty()) result["map_name"] = mapName;
+        if (!setProps.empty()) result["set_properties"] = setProps;
+        if (!errors.empty()) result["errors"] = errors;
+        return result.dump();
+    });
+}
+
+// ── native:set_texture_map_properties ───────────────────────────
+std::string NativeHandlers::SetTextureMapProperties(const std::string& params, MCPBridgeGUP* gup) {
+    return gup->GetExecutor().ExecuteSync([&]() -> std::string {
+        json p = json::parse(params);
+        std::string globalVar = p.value("global_var", "");
+        auto properties = p.value("properties", json::object());
+
+        if (globalVar.empty())
+            throw std::runtime_error("global_var is required");
+
+        json setProps = json::array();
+        json errors = json::array();
+
+        for (auto& [key, val] : properties.items()) {
+            std::string script = "try (" + globalVar + "." + key + " = " +
+                                 val.get<std::string>() + "; true) catch (false)";
+            std::string r = RunMAXScript(script);
+            if (r == "true") {
+                setProps.push_back(key);
+            } else {
+                errors.push_back(key);
+            }
+        }
+
+        json result;
+        result["status"] = "ok";
+        result["global_var"] = globalVar;
+        result["set_properties"] = setProps;
+        if (!errors.empty()) result["errors"] = errors;
+        return result.dump();
+    });
+}
+
+// ── native:set_sub_material ─────────────────────────────────────
+std::string NativeHandlers::SetSubMaterial(const std::string& params, MCPBridgeGUP* gup) {
+    return gup->GetExecutor().ExecuteSync([&]() -> std::string {
+        json p = json::parse(params);
+        std::string name = p.value("name", "");
+        int subIdx = p.value("sub_material_index", 0);
+        std::string matClass = p.value("material_class", "");
+        std::string matName = p.value("material_name", "");
+        std::string msParams = p.value("params", "");
+        int sourceIndex = p.value("source_index", 0);
+
+        if (name.empty())
+            throw std::runtime_error("name is required");
+
+        INode* node = FindNodeByName(name);
+        if (!node) throw std::runtime_error("Object '" + name + "' not found");
+
+        Mtl* parentMtl = node->GetMtl();
+        if (!parentMtl) throw std::runtime_error("Object has no material");
+
+        int numSub = parentMtl->NumSubMtls();
+        if (subIdx < 1 || subIdx > numSub)
+            throw std::runtime_error("Sub-material index " + std::to_string(subIdx) +
+                                     " out of range (1-" + std::to_string(numSub) + ")");
+
+        if (sourceIndex > 0) {
+            // Copy from another slot
+            if (sourceIndex > numSub)
+                throw std::runtime_error("Source index out of range");
+            Mtl* srcMtl = parentMtl->GetSubMtl(sourceIndex - 1);
+            parentMtl->SetSubMtl(subIdx - 1, srcMtl);
+        } else if (!matClass.empty()) {
+            // Create new material at slot via MAXScript
+            std::string script = "global __mcp_sub_mtl = " + matClass + "()";
+            if (!matName.empty()) {
+                script = "global __mcp_sub_mtl = " + matClass + " name:\"" +
+                         JsonEscape(matName) + "\"";
+            }
+            if (!msParams.empty()) {
+                script = "global __mcp_sub_mtl = " + matClass + " " + msParams;
+                if (!matName.empty()) script += " name:\"" + JsonEscape(matName) + "\"";
+            }
+            RunMAXScript(script);
+
+            // Now get the created material and assign to slot
+            std::string assignScript =
+                "(getNodeByName \"" + JsonEscape(name) + "\").material.materialList[" +
+                std::to_string(subIdx) + "] = __mcp_sub_mtl; __mcp_sub_mtl.name";
+            std::string resultName = RunMAXScript(assignScript);
+
+            json result;
+            result["status"] = "assigned";
+            result["object"] = name;
+            result["sub_material_index"] = subIdx;
+            result["material_name"] = resultName;
+            result["material_class"] = matClass;
+            return result.dump();
+        } else {
+            throw std::runtime_error("Either material_class or source_index must be provided");
+        }
+
+        Interface* ip = GetCOREInterface();
+        ip->RedrawViews(ip->GetTime());
+
+        // Read back name
+        Mtl* assigned = parentMtl->GetSubMtl(subIdx - 1);
+        std::string assignedName = assigned ? WideToUtf8(assigned->GetName().data()) : "unknown";
+
+        json result;
+        result["status"] = "assigned";
+        result["object"] = name;
+        result["sub_material_index"] = subIdx;
+        result["material_name"] = assignedName;
+        return result.dump();
+    });
+}

@@ -205,6 +205,22 @@ inline std::vector<INode*> CollectNodesByPattern(const std::string& pattern) {
     return matched;
 }
 
+// ── Normalize sub-anim path for execute() ───────────────────────
+// Replaces [#Object (ClassName)] with .baseObject — parentheses in
+// class names break MAXScript's execute() parser.
+inline std::string NormalizeSubAnimPath(const std::string& path) {
+    std::string result = path;
+    // Replace [#Object (anything)] with .baseObject
+    auto pos = result.find("[#Object (");
+    if (pos != std::string::npos) {
+        auto end = result.find(")]", pos);
+        if (end != std::string::npos) {
+            result = result.substr(0, pos) + ".baseObject" + result.substr(end + 2);
+        }
+    }
+    return result;
+}
+
 // ── Find ClassDesc by class name (iterates all loaded plugins) ──
 inline ClassDesc* FindClassDescByName(const std::string& className, SClass_ID superID = 0) {
     std::wstring wname = Utf8ToWide(className);

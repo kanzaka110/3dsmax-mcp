@@ -54,6 +54,13 @@ static bool IsDirectHandler(const std::string& cmd_type) {
         "native:map_class_relationships",
         "native:learn_scene_patterns",
         "native:watch_scene",
+        // Effects (read-only)
+        "native:get_effects",
+        // Wire params (read-only)
+        "native:get_wired_params",
+        // State sets (read-only)
+        "native:get_state_sets",
+        "native:get_camera_sequence",
     };
     return kDirect.count(cmd_type) > 0;
 }
@@ -369,6 +376,49 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::LearnScenePatterns(command, gup);
         } else if (cmd_type == "native:watch_scene") {
             result = NativeHandlers::WatchScene(command, gup);
+        // Effects
+        } else if (cmd_type == "native:get_effects") {
+            result = NativeHandlers::GetEffects(command, gup);
+        } else if (cmd_type == "native:toggle_effect") {
+            result = NativeHandlers::ToggleEffect(command, gup);
+        } else if (cmd_type == "native:delete_effect") {
+            result = NativeHandlers::DeleteEffect(command, gup);
+        // Render
+        } else if (cmd_type == "native:render_scene") {
+            result = NativeHandlers::RenderScene(command, gup);
+        // Material replace
+        } else if (cmd_type == "native:replace_material") {
+            result = NativeHandlers::ReplaceMaterial(command, gup);
+        } else if (cmd_type == "native:batch_replace_materials") {
+            result = NativeHandlers::BatchReplaceMaterials(command, gup);
+        // Texture map ops
+        } else if (cmd_type == "native:create_texture_map") {
+            result = NativeHandlers::CreateTextureMap(command, gup);
+        } else if (cmd_type == "native:set_texture_map_properties") {
+            result = NativeHandlers::SetTextureMapProperties(command, gup);
+        } else if (cmd_type == "native:set_sub_material") {
+            result = NativeHandlers::SetSubMaterial(command, gup);
+        // Controllers (extended)
+        } else if (cmd_type == "native:assign_controller") {
+            result = NativeHandlers::AssignController(command, gup);
+        } else if (cmd_type == "native:inspect_controller") {
+            result = NativeHandlers::InspectController(command, gup);
+        } else if (cmd_type == "native:set_controller_props") {
+            result = NativeHandlers::SetControllerProps(command, gup);
+        } else if (cmd_type == "native:add_controller_target") {
+            result = NativeHandlers::AddControllerTarget(command, gup);
+        // Wire params
+        } else if (cmd_type == "native:wire_params") {
+            result = NativeHandlers::WireParams(command, gup);
+        } else if (cmd_type == "native:get_wired_params") {
+            result = NativeHandlers::GetWiredParams(command, gup);
+        } else if (cmd_type == "native:unwire_params") {
+            result = NativeHandlers::UnwireParams(command, gup);
+        // State sets
+        } else if (cmd_type == "native:get_state_sets") {
+            result = NativeHandlers::GetStateSets(command, gup);
+        } else if (cmd_type == "native:get_camera_sequence") {
+            result = NativeHandlers::GetCameraSequence(command, gup);
         } else {
             throw std::runtime_error("Unknown command type: " + cmd_type);
         }

@@ -139,6 +139,19 @@ def assign_controller(
     Returns:
         JSON with controller class, object, and param path.
     """
+    if client.native_available:
+        payload = {
+            "name": name,
+            "param_path": param_path,
+            "controller_type": controller_type,
+            "script": script,
+            "variables": list(variables) if variables else [],
+            "params": params or {},
+            "layer": layer,
+        }
+        response = client.send_command(_json.dumps(payload), cmd_type="native:assign_controller")
+        return response.get("result", "")
+
     ct = controller_type.lower()
     if ct not in _CONTROLLER_MAP:
         keys = ", ".join(sorted(_CONTROLLER_MAP.keys()))
@@ -297,6 +310,11 @@ def inspect_controller(
     Returns:
         JSON with controller details, properties table, and type-specific sections.
     """
+    if client.native_available:
+        payload = _json.dumps({"name": name, "param_path": param_path})
+        response = client.send_command(payload, cmd_type="native:inspect_controller")
+        return response.get("result", "")
+
     safe_obj = safe_name(name)
     safe_path = safe_string(normalize_subanim_path(param_path))
     sep = "" if safe_path.startswith("[") else "."
@@ -607,6 +625,18 @@ def add_controller_target(
     Returns:
         Confirmation message.
     """
+    if client.native_available:
+        payload = {
+            "name": name,
+            "param_path": param_path,
+            "target_object": target_object,
+            "var_name": var_name or "",
+            "weight": weight,
+            "frame": frame,
+        }
+        response = client.send_command(_json.dumps(payload), cmd_type="native:add_controller_target")
+        return response.get("result", "")
+
     safe_obj = safe_name(name)
     safe_path = safe_string(normalize_subanim_path(param_path))
     safe_target = safe_name(target_object)
@@ -696,6 +726,16 @@ def set_controller_props(
     Returns:
         Confirmation message.
     """
+    if client.native_available:
+        payload = {
+            "name": name,
+            "param_path": param_path,
+            "script": script,
+            "params": params or {},
+        }
+        response = client.send_command(_json.dumps(payload), cmd_type="native:set_controller_props")
+        return response.get("result", "")
+
     safe_obj = safe_name(name)
     safe_path = safe_string(normalize_subanim_path(param_path))
     sep = "" if safe_path.startswith("[") else "."

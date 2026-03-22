@@ -987,6 +987,17 @@ def create_texture_map(
     Returns:
         Confirmation with the global variable name to reference this map.
     """
+    if client.native_available:
+        payload = {
+            "map_class": map_class,
+            "map_name": map_name,
+            "params": params,
+            "properties": properties or {},
+            "global_var": global_var,
+        }
+        response = client.send_command(json.dumps(payload), cmd_type="native:create_texture_map")
+        return response.get("result", "")
+
     safe_map_name = safe_string(map_name)
     name_param = f' name:"{safe_map_name}"' if map_name else ""
 
@@ -1057,6 +1068,11 @@ def set_texture_map_properties(
     Returns:
         Summary of properties set and any errors.
     """
+    if client.native_available:
+        payload = json.dumps({"global_var": global_var, "properties": properties})
+        response = client.send_command(payload, cmd_type="native:set_texture_map_properties")
+        return response.get("result", "")
+
     lines = []
     for prop, val in properties.items():
         safe_prop = safe_string(prop)
@@ -1124,6 +1140,18 @@ def set_sub_material(
     Returns:
         Confirmation of the sub-material assignment.
     """
+    if client.native_available:
+        payload = {
+            "name": name,
+            "sub_material_index": sub_material_index,
+            "material_class": material_class,
+            "material_name": material_name,
+            "params": params,
+            "source_index": source_index,
+        }
+        response = client.send_command(json.dumps(payload), cmd_type="native:set_sub_material")
+        return response.get("result", "")
+
     safe = safe_string(name)
     safe_mat_name = safe_string(material_name)
     name_param = f' name:"{safe_mat_name}"' if material_name else ""

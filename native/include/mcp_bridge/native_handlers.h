@@ -94,4 +94,36 @@ namespace NativeHandlers {
     std::string MapClassRelationships(const std::string& params, MCPBridgeGUP* gup);
     std::string LearnScenePatterns(const std::string& params, MCPBridgeGUP* gup);
     std::string WatchScene(const std::string& params, MCPBridgeGUP* gup);
+
+    // Effects
+    std::string GetEffects(const std::string& params, MCPBridgeGUP* gup);
+    std::string ToggleEffect(const std::string& params, MCPBridgeGUP* gup);
+    std::string DeleteEffect(const std::string& params, MCPBridgeGUP* gup);
+
+    // Render
+    std::string RenderScene(const std::string& params, MCPBridgeGUP* gup);
+
+    // Material replace
+    std::string ReplaceMaterial(const std::string& params, MCPBridgeGUP* gup);
+    std::string BatchReplaceMaterials(const std::string& params, MCPBridgeGUP* gup);
+
+    // Texture map ops
+    std::string CreateTextureMap(const std::string& params, MCPBridgeGUP* gup);
+    std::string SetTextureMapProperties(const std::string& params, MCPBridgeGUP* gup);
+    std::string SetSubMaterial(const std::string& params, MCPBridgeGUP* gup);
+
+    // Controllers (extended)
+    std::string AssignController(const std::string& params, MCPBridgeGUP* gup);
+    std::string InspectController(const std::string& params, MCPBridgeGUP* gup);
+    std::string SetControllerProps(const std::string& params, MCPBridgeGUP* gup);
+    std::string AddControllerTarget(const std::string& params, MCPBridgeGUP* gup);
+
+    // Wire params
+    std::string WireParams(const std::string& params, MCPBridgeGUP* gup);
+    std::string GetWiredParams(const std::string& params, MCPBridgeGUP* gup);
+    std::string UnwireParams(const std::string& params, MCPBridgeGUP* gup);
+
+    // State sets
+    std::string GetStateSets(const std::string& params, MCPBridgeGUP* gup);
+    std::string GetCameraSequence(const std::string& params, MCPBridgeGUP* gup);
 }

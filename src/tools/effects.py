@@ -5,6 +5,7 @@ and render effects (lens effects, blur, etc.) which are global to the scene,
 not per-object.
 """
 
+import json
 from ..server import mcp, client
 
 
@@ -21,6 +22,10 @@ def get_effects() -> str:
         JSON with atmospheric and render effect lists, including class,
         active state, and which scene objects reference each effect.
     """
+    if client.native_available:
+        response = client.send_command("{}", cmd_type="native:get_effects")
+        return response.get("result", '{"atmospherics":[],"renderEffects":[]}')
+
     maxscript = r"""(
         local result = "{\"atmospherics\": ["
         for i = 1 to numAtmospherics do (
@@ -71,6 +76,11 @@ def toggle_effect(
 
     Returns confirmation.
     """
+    if client.native_available:
+        payload = json.dumps({"index": index, "effect_type": effect_type, "active": active})
+        response = client.send_command(payload, cmd_type="native:toggle_effect")
+        return response.get("result", "")
+
     active_str = "true" if active else "false"
 
     if effect_type == "atmospheric":
@@ -110,6 +120,11 @@ def delete_effect(
 
     Returns confirmation.
     """
+    if client.native_available:
+        payload = json.dumps({"index": index, "effect_type": effect_type})
+        response = client.send_command(payload, cmd_type="native:delete_effect")
+        return response.get("result", "")
+
     if effect_type == "atmospheric":
         maxscript = f"""(
             if {index} > numAtmospherics then (

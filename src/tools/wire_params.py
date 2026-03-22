@@ -144,6 +144,19 @@ def wire_params(
     Returns:
         Confirmation with wired path details.
     """
+    if client.native_available:
+        payload = {
+            "source_object": source_object,
+            "source_param": source_param,
+            "target_object": target_object,
+            "target_param": target_param,
+            "expression": expression,
+            "two_way": two_way,
+            "reverse_expression": reverse_expression or "",
+        }
+        response = client.send_command(_json.dumps(payload), cmd_type="native:wire_params")
+        return response.get("result", "")
+
     if two_way and not reverse_expression:
         return "reverse_expression is required when two_way=True"
 
@@ -196,6 +209,11 @@ def get_wired_params(name: str) -> str:
         JSON array of {param_path, controller_class, num_wires, expressions}
         for each wired parameter.
     """
+    if client.native_available:
+        payload = _json.dumps({"name": name})
+        response = client.send_command(payload, cmd_type="native:get_wired_params")
+        return response.get("result", "[]")
+
     safe = safe_string(name)
     maxscript = f"""(
     local obj = getNodeByName "{safe}"
@@ -273,6 +291,11 @@ def unwire_params(
     Returns:
         Confirmation that the wire was removed.
     """
+    if client.native_available:
+        payload = _json.dumps({"object_name": object_name, "param_path": param_path})
+        response = client.send_command(payload, cmd_type="native:unwire_params")
+        return response.get("result", "")
+
     safe_obj = safe_string(object_name)
     safe_param = safe_string(normalize_subanim_path(param_path))
     param_sep = "" if safe_param.startswith("[") else "."

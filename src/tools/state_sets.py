@@ -5,6 +5,7 @@ Reads camera assignments, frame ranges, and state set data from
 (Autodesk.Max.StateSets.Plugin).
 """
 
+import json
 from ..server import mcp, client
 
 
@@ -25,6 +26,10 @@ def get_state_sets() -> str:
     Returns:
         JSON with all state sets, their cameras, and frame ranges.
     """
+    if client.native_available:
+        response = client.send_command("{}", cmd_type="native:get_state_sets")
+        return response.get("result", "")
+
     maxscript = r"""(
         fn getStateSetsJSON = (
             ssPlug = (dotNetClass "Autodesk.Max.StateSets.Plugin").Instance
@@ -130,6 +135,10 @@ def get_camera_sequence() -> str:
         JSON array of camera switches sorted by start frame, with
         camera name and frame range for each.
     """
+    if client.native_available:
+        response = client.send_command("{}", cmd_type="native:get_camera_sequence")
+        return response.get("result", "")
+
     maxscript = r"""(
         fn getCameraSequenceJSON = (
             ssPlug = (dotNetClass "Autodesk.Max.StateSets.Plugin").Instance
