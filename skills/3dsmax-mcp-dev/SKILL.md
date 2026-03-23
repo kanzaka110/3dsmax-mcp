@@ -269,7 +269,7 @@ Agent <-> FastMCP (Python/stdio) <-> Named Pipe <-> C++ GUP Plugin <-> 3ds Max S
                                   +-> TCP:8765 fallback -> MAXScript listener
 ```
 
-- 53 native C++ handlers via named pipe (pure SDK, 86-130x faster)
+- 76 native C++ handlers via named pipe (pure SDK, 86-130x faster)
 - Multi-instance pipe — multiple agents connect simultaneously
 - Safe mode on pipe — blocks DOSCommand, ShellLaunch, deleteFile, python.Execute, createFile
 - ScriptSource::NonEmbedded — .NET calls work through the pipe
@@ -283,3 +283,17 @@ Agent <-> FastMCP (Python/stdio) <-> Named Pipe <-> C++ GUP Plugin <-> 3ds Max S
 4. Add source to `CMakeLists.txt`
 5. Update Python tool with `if client.native_available:` + MAXScript fallback
 6. Build → deploy → restart Max
+
+### Unwrap UVW Editor
+- The macroscript `OpenUnwrapUI` does NOT open the UV editor window
+- To open the editor: `modifierInstance.edit()` on the Unwrap_UVW modifier (e.g. `$Box001.modifiers[#Unwrap_UVW].edit()`)
+- Action table "Unwrap UVW" has 228 actions including "Edit UVW's" (id 40005)
+- Use `list_macroscripts` and `list_action_tables` to discover available commands — don't guess names
+
+### System Discovery (native handlers)
+- `list_macroscripts` — walks MacroDir, 4000+ macros, filter by category/pattern
+- `list_action_tables` — walks IActionManager, 100+ tables with all menu/shortcut actions
+- `introspect_interface` — full FPInterface dump (functions, properties, enums with live values)
+- `invoke_interface` — call FPInterface functions + set properties directly, no MAXScript parsing
+- `run_macroscript` — execute macroscripts by category + name via MacroEntry::Execute()
+- Use these to discover any plugin's API surface before guessing MAXScript commands

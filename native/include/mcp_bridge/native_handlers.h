@@ -131,4 +131,8 @@ namespace NativeHandlers {
     std::string ListMacroscripts(const std::string& params, MCPBridgeGUP* gup);
     std::string ListActionTables(const std::string& params, MCPBridgeGUP* gup);
     std::string IntrospectInterface(const std::string& params, MCPBridgeGUP* gup);
+
+    // Direct execution (no MAXScript parsing)
+    std::string InvokeInterface(const std::string& params, MCPBridgeGUP* gup);
+    std::string RunMacroscript(const std::string& params, MCPBridgeGUP* gup);
 }

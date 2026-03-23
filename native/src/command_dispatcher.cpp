@@ -429,6 +429,10 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::ListActionTables(command, gup);
         } else if (cmd_type == "native:introspect_interface") {
             result = NativeHandlers::IntrospectInterface(command, gup);
+        } else if (cmd_type == "native:invoke_interface") {
+            result = NativeHandlers::InvokeInterface(command, gup);
+        } else if (cmd_type == "native:run_macroscript") {
+            result = NativeHandlers::RunMacroscript(command, gup);
         } else {
             throw std::runtime_error("Unknown command type: " + cmd_type);
         }

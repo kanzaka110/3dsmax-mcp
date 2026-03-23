@@ -144,44 +144,40 @@ std::string NativeHandlers::ListActionTables(const std::string& params, MCPBridg
             if (includeItems) {
                 json items = json::array();
                 for (int a = 0; a < table->Count(); a++) {
-                    ActionItem* item = table->GetActionByIndex(a);
-                    if (!item) continue;
-
-                    json itemJ;
-                    itemJ["id"] = item->GetId();
-
-                    MSTR menuText, descText, catText, buttonText;
-                    try { item->GetMenuText(menuText); } catch (...) {}
-                    try { item->GetDescriptionText(descText); } catch (...) {}
-                    try { item->GetCategoryText(catText); } catch (...) {}
-                    try { item->GetButtonText(buttonText); } catch (...) {}
-
-                    if (menuText.data() && menuText.data()[0])
-                        itemJ["menuText"] = WideToUtf8(menuText.data());
-                    if (descText.data() && descText.data()[0])
-                        itemJ["description"] = WideToUtf8(descText.data());
-                    if (catText.data() && catText.data()[0])
-                        itemJ["category"] = WideToUtf8(catText.data());
-                    if (buttonText.data() && buttonText.data()[0])
-                        itemJ["buttonText"] = WideToUtf8(buttonText.data());
-
                     try {
-                        itemJ["enabled"] = item->IsEnabled() ? true : false;
-                        itemJ["checked"] = item->IsChecked() ? true : false;
-                    } catch (...) {}
+                        ActionItem* item = table->GetActionByIndex(a);
+                        if (!item) continue;
 
-                    const MCHAR* shortcut = item->GetShortcutString();
-                    if (shortcut && shortcut[0])
-                        itemJ["shortcut"] = WideToUtf8(shortcut);
+                        json itemJ;
+                        itemJ["id"] = item->GetId();
 
-                    // Check if it's a macroscript-backed action
-                    MacroEntry* macro = item->GetMacroScript();
-                    if (macro) {
-                        itemJ["macroscript"] = WideToUtf8(macro->GetName().data());
-                        itemJ["macroCategory"] = WideToUtf8(macro->GetCategory().data());
+                        // Safe text reads — each wrapped individually
+                        try { MSTR s; item->GetMenuText(s);
+                              if (s.data() && s.data()[0]) itemJ["menuText"] = WideToUtf8(s.data()); } catch (...) {}
+                        try { MSTR s; item->GetDescriptionText(s);
+                              if (s.data() && s.data()[0]) itemJ["description"] = WideToUtf8(s.data()); } catch (...) {}
+                        try { MSTR s; item->GetCategoryText(s);
+                              if (s.data() && s.data()[0]) itemJ["category"] = WideToUtf8(s.data()); } catch (...) {}
+                        try { MSTR s; item->GetButtonText(s);
+                              if (s.data() && s.data()[0]) itemJ["buttonText"] = WideToUtf8(s.data()); } catch (...) {}
+
+                        // Skip IsEnabled/IsChecked — triggers evaluation chains that crash plugins
+                        // Skip GetShortcutString — can crash on some items
+
+                        // Macroscript link (safe — just reads a pointer)
+                        try {
+                            MacroEntry* macro = item->GetMacroScript();
+                            if (macro) {
+                                itemJ["macroscript"] = WideToUtf8(macro->GetName().data());
+                                itemJ["macroCategory"] = WideToUtf8(macro->GetCategory().data());
+                            }
+                        } catch (...) {}
+
+                        items.push_back(itemJ);
+                    } catch (...) {
+                        // Skip any item that crashes
+                        continue;
                     }
-
-                    items.push_back(itemJ);
                 }
                 tableJ["actions"] = items;
             }
@@ -315,26 +311,29 @@ std::string NativeHandlers::IntrospectInterface(const std::string& params, MCPBr
             propJ["type"] = PType2Str(prop->prop_type);
             propJ["readOnly"] = (prop->setter_ID == FP_NO_FUNCTION);
 
-            // Try to read current value via the interface
+            // Read current value via MAXScript — safer than Invoke() which
+            // can crash if the plugin isn't in active state
             if (iface && prop->getter_ID != FP_NO_FUNCTION) {
                 try {
-                    FPValue val;
-                    FPStatus status = iface->Invoke(prop->getter_ID, 0, val);
-                    if (status == FPS_OK) {
-                        switch (val.type) {
-                        case TYPE_INT: propJ["value"] = val.i; break;
-                        case TYPE_FLOAT: propJ["value"] = val.f; break;
-                        case TYPE_BOOL: propJ["value"] = val.i != 0; break;
-                        case TYPE_STRING:
-                        case TYPE_FILENAME:
-                            propJ["value"] = val.s ? WideToUtf8(val.s) : ""; break;
-                        case TYPE_TSTR:
-                            propJ["value"] = val.tstr ? WideToUtf8(val.tstr->data()) : ""; break;
-                        case TYPE_POINT3:
-                            if (val.p)
-                                propJ["value"] = json::array({val.p->x, val.p->y, val.p->z});
-                            break;
-                        default: break;
+                    std::string propName = (prop->internal_name.data() && prop->internal_name.data()[0]) ?
+                        WideToUtf8(prop->internal_name.data()) : "";
+                    if (!propName.empty()) {
+                        std::string script = "try (" + ifaceName + "." + propName + ") catch (undefined)";
+                        std::wstring wscript = Utf8ToWide(script);
+                        FPValue val;
+                        if (ExecuteMAXScriptScript(wscript.c_str(),
+                                MAXScript::ScriptSource::NonEmbedded, TRUE, &val)) {
+                            switch (val.type) {
+                            case TYPE_INT: propJ["value"] = val.i; break;
+                            case TYPE_FLOAT: propJ["value"] = val.f; break;
+                            case TYPE_BOOL: propJ["value"] = val.i != 0; break;
+                            case TYPE_STRING:
+                            case TYPE_FILENAME:
+                                if (val.s) propJ["value"] = WideToUtf8(val.s); break;
+                            case TYPE_TSTR:
+                                if (val.tstr) propJ["value"] = WideToUtf8(val.tstr->data()); break;
+                            default: break;
+                            }
                         }
                     }
                 } catch (...) {}
@@ -363,6 +362,179 @@ std::string NativeHandlers::IntrospectInterface(const std::string& params, MCPBr
             result["enums"].push_back(enumJ);
         }
 
+        return result.dump();
+    });
+}
+
+// ── Helper: resolve FPInterface by name ─────────────────────────
+static FPInterface* FindFPInterfaceByName(const std::string& name) {
+    std::wstring wname = Utf8ToWide(name);
+
+    // Search ClassDesc-registered interfaces
+    auto& dir = DllDir::GetInstance();
+    for (int d = 0; d < dir.Count(); d++) {
+        const DllDesc& dll = dir[d];
+        for (int c = 0; c < dll.NumberOfClasses(); c++) {
+            ClassDesc* cd = dll[c];
+            if (!cd) continue;
+            ClassDesc2* cd2 = dynamic_cast<ClassDesc2*>(cd);
+            if (!cd2) continue;
+            for (int i = 0; i < cd2->NumInterfaces(); i++) {
+                FPInterface* fi = cd2->GetInterfaceAt(i);
+                if (!fi) continue;
+                FPInterfaceDesc* d2 = fi->GetDesc();
+                if (d2 && d2->internal_name.data() &&
+                    _wcsicmp(d2->internal_name.data(), wname.c_str()) == 0)
+                    return fi;
+            }
+        }
+    }
+
+    // Fallback: resolve via MAXScript (for global/static interfaces)
+    try {
+        std::string script = "(local iface = " + name +
+            "; if (classOf iface) == Interface then iface else undefined)";
+        std::wstring wscript = Utf8ToWide(script);
+        FPValue fpv;
+        if (ExecuteMAXScriptScript(wscript.c_str(),
+                MAXScript::ScriptSource::NonEmbedded, TRUE, &fpv)) {
+            if (fpv.type == TYPE_INTERFACE && fpv.fpi != nullptr)
+                return fpv.fpi;
+        }
+    } catch (...) {}
+
+    return nullptr;
+}
+
+// ── native:invoke_interface ─────────────────────────────────────
+// Call any FPInterface function or set properties directly via C++ SDK.
+// No MAXScript parsing for function calls. Pure Invoke().
+std::string NativeHandlers::InvokeInterface(const std::string& params, MCPBridgeGUP* gup) {
+    return gup->GetExecutor().ExecuteSync([&]() -> std::string {
+        json p = json::parse(params);
+        std::string ifaceName = p.value("interface", "");
+        std::string fnName = p.value("function", "");
+        auto setProps = p.value("set", json::object());
+
+        if (ifaceName.empty())
+            throw std::runtime_error("interface is required");
+
+        FPInterface* iface = FindFPInterfaceByName(ifaceName);
+        if (!iface)
+            throw std::runtime_error("Interface '" + ifaceName + "' not found");
+
+        json result;
+        result["interface"] = ifaceName;
+
+        // Set properties first (if any)
+        if (!setProps.empty()) {
+            json setResults = json::object();
+            FPInterfaceDesc* desc = iface->GetDesc();
+            for (auto& [key, val] : setProps.items()) {
+                bool found = false;
+                if (desc) {
+                    for (int pr = 0; pr < desc->props.Count(); pr++) {
+                        FPPropDef* prop = desc->props[pr];
+                        if (!prop || !prop->internal_name.data()) continue;
+                        std::string pname = WideToUtf8(prop->internal_name.data());
+                        if (_stricmp(pname.c_str(), key.c_str()) != 0) continue;
+                        if (prop->setter_ID == FP_NO_FUNCTION) {
+                            setResults[key] = "readonly";
+                            found = true;
+                            break;
+                        }
+                        // Use MAXScript for setting — type coercion is complex
+                        try {
+                            std::string script = ifaceName + "." + key + " = " + val.get<std::string>();
+                            RunMAXScript(script);
+                            setResults[key] = "ok";
+                        } catch (...) {
+                            setResults[key] = "error";
+                        }
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) setResults[key] = "not_found";
+            }
+            result["set"] = setResults;
+        }
+
+        // Call function (if specified)
+        if (!fnName.empty()) {
+            FunctionID fid = iface->FindFn(Utf8ToWide(fnName).c_str());
+            if (fid == FP_NO_FUNCTION)
+                throw std::runtime_error("Function '" + fnName + "' not found on " + ifaceName);
+
+            FPValue retVal;
+            FPStatus status = iface->Invoke(fid, 0, retVal);
+            if (status != FPS_OK)
+                throw std::runtime_error("Invoke failed for " + fnName);
+
+            result["function"] = fnName;
+            result["status"] = "ok";
+
+            switch (retVal.type) {
+            case TYPE_INT: result["returnValue"] = retVal.i; break;
+            case TYPE_FLOAT: result["returnValue"] = retVal.f; break;
+            case TYPE_BOOL: result["returnValue"] = retVal.i != 0; break;
+            case TYPE_STRING:
+            case TYPE_FILENAME:
+                if (retVal.s) result["returnValue"] = WideToUtf8(retVal.s); break;
+            case TYPE_TSTR:
+                if (retVal.tstr) result["returnValue"] = WideToUtf8(retVal.tstr->data()); break;
+            case TYPE_VOID: break;
+            default: break;
+            }
+        }
+
+        return result.dump();
+    });
+}
+
+// ── native:run_macroscript ──────────────────────────────────────
+// Execute a macroscript by category + name. Pure SDK, no MAXScript parsing.
+std::string NativeHandlers::RunMacroscript(const std::string& params, MCPBridgeGUP* gup) {
+    return gup->GetExecutor().ExecuteSync([&]() -> std::string {
+        json p = json::parse(params);
+        std::string category = p.value("category", "");
+        std::string name = p.value("name", "");
+
+        if (name.empty())
+            throw std::runtime_error("name is required");
+
+        MacroDir& macroDir = GetMacroScriptDir();
+        MacroEntry* entry = nullptr;
+
+        if (!category.empty()) {
+            entry = macroDir.FindMacro(
+                Utf8ToWide(category).c_str(),
+                Utf8ToWide(name).c_str()
+            );
+        }
+
+        if (!entry) {
+            int count = macroDir.Count();
+            for (int i = 0; i < count; i++) {
+                MacroEntry* e = macroDir.GetMacro(i);
+                if (!e) continue;
+                std::string eName = WideToUtf8(e->GetName().data());
+                if (_stricmp(eName.c_str(), name.c_str()) == 0) {
+                    entry = e;
+                    break;
+                }
+            }
+        }
+
+        if (!entry)
+            throw std::runtime_error("Macroscript '" + name + "' not found");
+
+        entry->Execute();
+
+        json result;
+        result["status"] = "executed";
+        result["name"] = WideToUtf8(entry->GetName().data());
+        result["category"] = WideToUtf8(entry->GetCategory().data());
         return result.dump();
     });
 }
