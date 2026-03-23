@@ -61,6 +61,9 @@ static bool IsDirectHandler(const std::string& cmd_type) {
         // State sets (read-only)
         "native:get_state_sets",
         "native:get_camera_sequence",
+        // System discovery (read-only)
+        "native:list_macroscripts",
+        "native:list_action_tables",
     };
     return kDirect.count(cmd_type) > 0;
 }
@@ -419,6 +422,13 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::GetStateSets(command, gup);
         } else if (cmd_type == "native:get_camera_sequence") {
             result = NativeHandlers::GetCameraSequence(command, gup);
+        // System discovery
+        } else if (cmd_type == "native:list_macroscripts") {
+            result = NativeHandlers::ListMacroscripts(command, gup);
+        } else if (cmd_type == "native:list_action_tables") {
+            result = NativeHandlers::ListActionTables(command, gup);
+        } else if (cmd_type == "native:introspect_interface") {
+            result = NativeHandlers::IntrospectInterface(command, gup);
         } else {
             throw std::runtime_error("Unknown command type: " + cmd_type);
         }

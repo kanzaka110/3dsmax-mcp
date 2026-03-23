@@ -36,6 +36,7 @@ set(SOURCES
     src/handlers/effects_handlers.cpp
     src/handlers/render_handlers.cpp
     src/handlers/state_sets_handlers.cpp
+    src/handlers/discovery_handlers.cpp
 )
 
 add_library(mcp_bridge SHARED ${SOURCES})

@@ -126,4 +126,9 @@ namespace NativeHandlers {
     // State sets
     std::string GetStateSets(const std::string& params, MCPBridgeGUP* gup);
     std::string GetCameraSequence(const std::string& params, MCPBridgeGUP* gup);
+
+    // System discovery (macroscripts, actions, interfaces)
+    std::string ListMacroscripts(const std::string& params, MCPBridgeGUP* gup);
+    std::string ListActionTables(const std::string& params, MCPBridgeGUP* gup);
+    std::string IntrospectInterface(const std::string& params, MCPBridgeGUP* gup);
 }
