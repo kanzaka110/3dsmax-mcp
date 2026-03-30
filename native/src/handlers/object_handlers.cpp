@@ -355,6 +355,7 @@ std::string NativeHandlers::CreateObject(const std::string& params, MCPBridgeGUP
         // Parse and apply params via IParamBlock2
         Point3 posOverride(0, 0, 0);
         bool hasPos = false;
+        bool anyParamFailed = false;
 
         if (!objParams.empty()) {
             auto kvPairs = ParseParamString(objParams);
@@ -372,9 +373,23 @@ std::string NativeHandlers::CreateObject(const std::string& params, MCPBridgeGUP
 
                 // Try setting on base object's PB2
                 if (!SetParamByName(obj, key, val, t)) {
-                    // If PB2 didn't work, could be a node property
-                    // Silently skip — the param might not exist
+                    anyParamFailed = true;
                 }
+            }
+
+            // If any PB2 param failed (e.g. PB1/legacy objects like Capsule, Hedra),
+            // fall back to MAXScript to apply all params at once
+            if (anyParamFailed) {
+                std::string nodeName = WideToUtf8(node->GetName());
+                std::string ms = "(";
+                for (auto& [key, val] : kvPairs) {
+                    std::string lkey = key;
+                    std::transform(lkey.begin(), lkey.end(), lkey.begin(), ::tolower);
+                    if (lkey == "pos") continue; // handled separately
+                    ms += "$'" + JsonEscape(nodeName) + "'." + key + " = " + val + "; ";
+                }
+                ms += "\"OK\")";
+                try { RunMAXScript(ms); } catch (...) {}
             }
         }
 

@@ -250,13 +250,16 @@ std::string NativeHandlers::ListWireableParams(const std::string& params, MCPBri
 std::string NativeHandlers::AssignController(const std::string& params, MCPBridgeGUP* gup) {
     return gup->GetExecutor().ExecuteSync([&]() -> std::string {
         json p = json::parse(params);
-        std::string name = p.value("name", "");
-        std::string paramPath = p.value("param_path", "");
-        std::string ctrlType = p.value("controller_type", "");
-        std::string script = p.value("script", "");
-        auto variables = p.value("variables", json::array());
-        auto ctrlParams = p.value("params", json::object());
-        bool layer = p.value("layer", false);
+        std::string name = p.contains("name") && !p["name"].is_null() ? p["name"].get<std::string>() : "";
+        std::string paramPath = p.contains("param_path") && !p["param_path"].is_null() ? p["param_path"].get<std::string>() : "";
+        std::string ctrlType = p.contains("controller_type") && !p["controller_type"].is_null() ? p["controller_type"].get<std::string>() : "";
+        std::string script = p.contains("script") && !p["script"].is_null() ? p["script"].get<std::string>() : "";
+        // Handle null values explicitly — json::value() doesn't use default for null
+        auto variables = p.contains("variables") && !p["variables"].is_null()
+                         ? p["variables"] : json::array();
+        auto ctrlParams = p.contains("params") && !p["params"].is_null()
+                          ? p["params"] : json::object();
+        bool layer = p.contains("layer") && !p["layer"].is_null() ? p["layer"].get<bool>() : false;
 
         if (name.empty() || paramPath.empty() || ctrlType.empty())
             throw std::runtime_error("name, param_path, and controller_type are required");
@@ -353,9 +356,16 @@ std::string NativeHandlers::AssignController(const std::string& params, MCPBridg
             }
         }
 
-        // Extra properties
+        // Extra properties (avoid is_string() etc. — MAXScript macro collision)
         for (auto& [key, val] : ctrlParams.items()) {
-            ms += "  try (ctrl." + key + " = " + val.get<std::string>() + ") catch ()\n";
+            std::string valStr;
+            auto vt = val.type();
+            if (vt == json::value_t::string) valStr = val.get<std::string>();
+            else if (vt == json::value_t::number_float) valStr = std::to_string(val.get<double>());
+            else if (vt == json::value_t::number_integer || vt == json::value_t::number_unsigned) valStr = std::to_string(val.get<int>());
+            else if (vt == json::value_t::boolean) valStr = val.get<bool>() ? "true" : "false";
+            else valStr = val.dump();
+            ms += "  try (ctrl." + key + " = " + valStr + ") catch ()\n";
         }
 
         ms += "  \"OK\"\n";
@@ -428,10 +438,11 @@ std::string NativeHandlers::InspectController(const std::string& params, MCPBrid
 std::string NativeHandlers::SetControllerProps(const std::string& params, MCPBridgeGUP* gup) {
     return gup->GetExecutor().ExecuteSync([&]() -> std::string {
         json p = json::parse(params);
-        std::string name = p.value("name", "");
-        std::string paramPath = p.value("param_path", "");
-        std::string script = p.value("script", "");
-        auto ctrlParams = p.value("params", json::object());
+        std::string name = p.contains("name") && !p["name"].is_null() ? p["name"].get<std::string>() : "";
+        std::string paramPath = p.contains("param_path") && !p["param_path"].is_null() ? p["param_path"].get<std::string>() : "";
+        std::string script = p.contains("script") && !p["script"].is_null() ? p["script"].get<std::string>() : "";
+        auto ctrlParams = p.contains("params") && !p["params"].is_null()
+                          ? p["params"] : json::object();
 
         if (name.empty() || paramPath.empty())
             throw std::runtime_error("name and param_path are required");
@@ -456,8 +467,16 @@ std::string NativeHandlers::SetControllerProps(const std::string& params, MCPBri
             ms += "  try (ctrl.script = \"" + safe + "\") catch (try (ctrl.SetExpression \"" + safe + "\"; ctrl.Update()) catch ())\n";
         }
 
+        // Avoid is_string() etc. — MAXScript macro collision
         for (auto& [key, val] : ctrlParams.items()) {
-            ms += "  try (ctrl." + key + " = " + val.get<std::string>() + ") catch ()\n";
+            std::string valStr;
+            auto vt = val.type();
+            if (vt == json::value_t::string) valStr = val.get<std::string>();
+            else if (vt == json::value_t::number_float) valStr = std::to_string(val.get<double>());
+            else if (vt == json::value_t::number_integer || vt == json::value_t::number_unsigned) valStr = std::to_string(val.get<int>());
+            else if (vt == json::value_t::boolean) valStr = val.get<bool>() ? "true" : "false";
+            else valStr = val.dump();
+            ms += "  try (ctrl." + key + " = " + valStr + ") catch ()\n";
         }
 
         ms += "  \"OK\"\n";
@@ -477,39 +496,80 @@ std::string NativeHandlers::SetControllerProps(const std::string& params, MCPBri
 std::string NativeHandlers::AddControllerTarget(const std::string& params, MCPBridgeGUP* gup) {
     return gup->GetExecutor().ExecuteSync([&]() -> std::string {
         json p = json::parse(params);
-        std::string name = p.value("name", "");
-        std::string paramPath = p.value("param_path", "");
-        std::string targetObj = p.value("target_object", "");
-        std::string varName = p.value("var_name", "");
+        std::string name = p.contains("name") && !p["name"].is_null() ? p["name"].get<std::string>() : "";
+        std::string paramPath = p.contains("param_path") && !p["param_path"].is_null() ? p["param_path"].get<std::string>() : "";
+        std::string targetObj = p.contains("target_object") && !p["target_object"].is_null() ? p["target_object"].get<std::string>() : "";
+        std::string varName = p.contains("var_name") && !p["var_name"].is_null() ? p["var_name"].get<std::string>() : "";
         float weight = p.value("weight", 50.0f);
         int frame = p.value("frame", 0);
 
         if (name.empty() || paramPath.empty() || targetObj.empty())
             throw std::runtime_error("name, param_path, and target_object are required");
 
+        // Pure SDK: find node, walk sub-anim path, get controller
+        INode* node = FindNodeByName(name);
+        if (!node) throw std::runtime_error("Object not found: " + name);
+
+        INode* tgtNode = FindNodeByName(targetObj);
+        if (!tgtNode) throw std::runtime_error("Target object not found: " + targetObj);
+
+        Animatable* sa = ResolveSubAnimPath(node, paramPath);
+        if (!sa) throw std::runtime_error("Track not found: " + paramPath);
+
+        // The resolved sub-anim might be a SubAnim wrapper or the controller itself.
+        // Try: if it has sub-anims, the first one is typically the controller.
+        // Also check if the animatable itself is a Control.
+        Control* ctrl = nullptr;
+        SClass_ID scid = sa->SuperClassID();
+        if (scid == CTRL_FLOAT_CLASS_ID || scid == CTRL_POSITION_CLASS_ID ||
+            scid == CTRL_ROTATION_CLASS_ID || scid == CTRL_SCALE_CLASS_ID ||
+            scid == CTRL_POINT3_CLASS_ID || scid == CTRL_MATRIX3_CLASS_ID) {
+            ctrl = (Control*)sa;
+        }
+        // If not a controller directly, check first sub-anim (SubAnim wrapper pattern)
+        if (!ctrl && sa->NumSubs() > 0) {
+            Animatable* child = sa->SubAnim(0);
+            if (child) {
+                SClass_ID cscid = child->SuperClassID();
+                if (cscid == CTRL_FLOAT_CLASS_ID || cscid == CTRL_POSITION_CLASS_ID ||
+                    cscid == CTRL_ROTATION_CLASS_ID || cscid == CTRL_SCALE_CLASS_ID ||
+                    cscid == CTRL_POINT3_CLASS_ID || cscid == CTRL_MATRIX3_CLASS_ID) {
+                    ctrl = (Control*)child;
+                }
+            }
+        }
+        if (!ctrl) throw std::runtime_error("No controller at track: " + paramPath);
+
+        // Get controller class name via SDK
+        MSTR clsName;
+        ctrl->GetClassName(clsName, false);
+        std::string cls = WideToUtf8(clsName.data());
+
+        // Determine controller category and build minimal MAXScript for FP call
+        std::string vn = varName.empty() ? targetObj : varName;
+        std::string safeName = JsonEscape(name);
+        std::string safeTgt = JsonEscape(targetObj);
+        std::string safeVn = JsonEscape(vn);
+        std::string safePath = JsonEscape(NormalizeSubAnimPath(paramPath));
+        std::string sep = (safePath[0] == '[') ? "" : ".";
+
         std::string ms;
-        ms += "(\n";
-        ms += "  local obj = getNodeByName \"" + JsonEscape(name) + "\"\n";
-        ms += "  if obj == undefined do throw \"Object not found\"\n";
-        ms += "  local sa = execute (\"$'\" + obj.name + \"'\" + \"" + JsonEscape(paramPath) + "\")\n";
-        ms += "  local ctrl = sa.controller\n";
-        ms += "  if ctrl == undefined do throw \"No controller\"\n";
-        ms += "  local tgt = getNodeByName \"" + JsonEscape(targetObj) + "\"\n";
-        ms += "  if tgt == undefined do throw \"Target object not found\"\n";
-        ms += "  local cls = (classOf ctrl) as string\n";
-        // Script controllers use addNode
-        ms += "  if (matchPattern cls pattern:\"*Script*\") then (\n";
-        ms += "    local vn = \"" + (varName.empty() ? JsonEscape(targetObj) : JsonEscape(varName)) + "\"\n";
-        ms += "    ctrl.addNode vn tgt\n";
-        // Link constraints use addTarget with frame
-        ms += "  ) else if cls == \"Link_Constraint\" then (\n";
-        ms += "    ctrl.addTarget tgt " + std::to_string(frame) + "\n";
-        // Other constraints use appendTarget with weight
-        ms += "  ) else (\n";
-        ms += "    ctrl.appendTarget tgt " + std::to_string(weight) + "\n";
-        ms += "  )\n";
-        ms += "  \"OK\"\n";
-        ms += ")\n";
+        std::string lowerCls = cls;
+        std::transform(lowerCls.begin(), lowerCls.end(), lowerCls.begin(), ::tolower);
+
+        if (lowerCls.find("script") != std::string::npos) {
+            // Script controllers: addNode
+            ms = "$'" + safeName + "'" + sep + safePath + ".controller.addNode \"" + safeVn + "\" (getNodeByName \"" + safeTgt + "\")";
+        } else if (lowerCls.find("expression") != std::string::npos) {
+            // Expression controllers: addScalarTarget
+            ms = "try ($'" + safeName + "'" + sep + safePath + ".controller.addScalarTarget \"" + safeVn + "\" (getNodeByName \"" + safeTgt + "\") 0) catch ($'" + safeName + "'" + sep + safePath + ".controller.addVectorTarget \"" + safeVn + "\" (getNodeByName \"" + safeTgt + "\") 0)";
+        } else if (cls == "Link_Constraint") {
+            ms = "$'" + safeName + "'" + sep + safePath + ".controller.addTarget (getNodeByName \"" + safeTgt + "\") " + std::to_string(frame);
+        } else if (lowerCls.find("constraint") != std::string::npos) {
+            ms = "$'" + safeName + "'" + sep + safePath + ".controller.appendTarget (getNodeByName \"" + safeTgt + "\") " + std::to_string(weight);
+        } else {
+            throw std::runtime_error("Controller type '" + cls + "' does not support node targets. Use float_script or constraint controllers.");
+        }
 
         RunMAXScript(ms);
 
@@ -584,6 +644,7 @@ std::string NativeHandlers::GetWiredParams(const std::string& params, MCPBridgeG
         if (name.empty()) throw std::runtime_error("name is required");
 
         // Walk sub-anims looking for Wire controllers
+        // Paths use [#name] format so they work directly with MAXScript execute()
         std::string ms;
         ms += "(\n";
         ms += "  local obj = getNodeByName \"" + JsonEscape(name) + "\"\n";
@@ -594,7 +655,7 @@ std::string NativeHandlers::GetWiredParams(const std::string& params, MCPBridgeG
         ms += "    if depth <= 0 do return()\n";
         ms += "    for i = 1 to sa.numsubs do (\n";
         ms += "      local child = sa[i]\n";
-        ms += "      local childPath = path + \"[\" + (sa[i].name as string) + \"]\"\n";
+        ms += "      local childPath = path + \"[#\" + (sa[i].name as string) + \"]\"\n";
         ms += "      local ctrl = child.controller\n";
         ms += "      if ctrl != undefined and (matchPattern ((classOf ctrl) as string) pattern:\"*Wire*\") do (\n";
         ms += "        local numW = try (ctrl.numWires) catch (0)\n";

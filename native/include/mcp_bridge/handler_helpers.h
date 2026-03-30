@@ -210,7 +210,20 @@ inline std::vector<INode*> CollectNodesByPattern(const std::string& pattern) {
 // class names break MAXScript's execute() parser.
 inline std::string NormalizeSubAnimPath(const std::string& path) {
     std::string result = path;
-    // Replace [#Object (anything)] with .baseObject
+
+    // Ensure [name] tokens have # prefix → [#name] (needed by MAXScript execute())
+    // Handles paths from get_wired_params which may omit the # prefix
+    std::string fixed;
+    for (size_t i = 0; i < result.size(); i++) {
+        if (result[i] == '[' && (i + 1 < result.size()) && result[i + 1] != '#') {
+            fixed += "[#";
+        } else {
+            fixed += result[i];
+        }
+    }
+    result = fixed;
+
+    // Replace [#Object (anything)] with .baseObject — parentheses break execute()
     auto pos = result.find("[#Object (");
     if (pos != std::string::npos) {
         auto end = result.find(")]", pos);
@@ -218,7 +231,80 @@ inline std::string NormalizeSubAnimPath(const std::string& path) {
             result = result.substr(0, pos) + ".baseObject" + result.substr(end + 2);
         }
     }
+    // Also handle without # (legacy): [Object (anything)]
+    pos = result.find("[Object (");
+    if (pos != std::string::npos) {
+        auto end = result.find(")]", pos);
+        if (end != std::string::npos) {
+            result = result.substr(0, pos) + ".baseObject" + result.substr(end + 2);
+        }
+    }
+
+    // Strip [#Parameters] — track view grouping node, not addressable in MAXScript
+    std::string paramToken = "[#Parameters]";
+    pos = result.find(paramToken);
+    while (pos != std::string::npos) {
+        result.erase(pos, paramToken.length());
+        pos = result.find(paramToken);
+    }
     return result;
+}
+
+// ── Walk sub-anim path to resolve a track from a node ───────────
+// Path format: "[#Transform][#Position][#Z Position]" or "[#transform][#position][#z_position]"
+// Returns the Animatable* at that path, or nullptr if not found.
+inline Animatable* ResolveSubAnimPath(INode* node, const std::string& path) {
+    if (!node) return nullptr;
+    Animatable* current = node;
+
+    // Parse [#name] tokens from the path
+    std::vector<std::string> tokens;
+    size_t i = 0;
+    while (i < path.size()) {
+        auto open = path.find("[#", i);
+        if (open == std::string::npos) {
+            // Also try [  without #
+            open = path.find('[', i);
+            if (open == std::string::npos) break;
+            auto close = path.find(']', open);
+            if (close == std::string::npos) break;
+            std::string tok = path.substr(open + 1, close - open - 1);
+            if (!tok.empty() && tok != "Parameters") tokens.push_back(tok);
+            i = close + 1;
+        } else {
+            auto close = path.find(']', open);
+            if (close == std::string::npos) break;
+            std::string tok = path.substr(open + 2, close - open - 2);
+            if (!tok.empty() && tok != "Parameters") tokens.push_back(tok);
+            i = close + 1;
+        }
+    }
+
+    // Walk sub-anims matching by name (case-insensitive)
+    for (const auto& tok : tokens) {
+        bool found = false;
+        int numSubs = current->NumSubs();
+        for (int s = 0; s < numSubs; s++) {
+            Animatable* sub = current->SubAnim(s);
+            if (!sub) continue;
+            MSTR subName = current->SubAnimName(s, false);
+            std::string sname = WideToUtf8(subName.data());
+            // Case-insensitive compare, also handle underscore vs space
+            std::string lTok = tok, lName = sname;
+            std::transform(lTok.begin(), lTok.end(), lTok.begin(), ::tolower);
+            std::transform(lName.begin(), lName.end(), lName.begin(), ::tolower);
+            // Replace spaces with underscores for comparison
+            std::replace(lTok.begin(), lTok.end(), ' ', '_');
+            std::replace(lName.begin(), lName.end(), ' ', '_');
+            if (lTok == lName) {
+                current = sub;
+                found = true;
+                break;
+            }
+        }
+        if (!found) return nullptr;
+    }
+    return current;
 }
 
 // ── Find ClassDesc by class name (iterates all loaded plugins) ──

@@ -614,7 +614,8 @@ std::string NativeHandlers::ReplaceMaterial(const std::string& params, MCPBridge
 std::string NativeHandlers::BatchReplaceMaterials(const std::string& params, MCPBridgeGUP* gup) {
     return gup->GetExecutor().ExecuteSync([&]() -> std::string {
         json p = json::parse(params);
-        auto replacements = p.value("replacements", json::array());
+        auto replacements = p.contains("replacements") && !p["replacements"].is_null()
+                            ? p["replacements"] : json::array();
         bool preview = p.value("preview", false);
 
         Interface* ip = GetCOREInterface();

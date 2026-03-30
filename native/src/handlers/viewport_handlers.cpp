@@ -129,30 +129,43 @@ std::string NativeHandlers::CaptureMultiView(const std::string& params, MCPBridg
         Interface* ip = GetCOREInterface();
         TimeValue t = ip->GetTime();
 
-        // Save current viewport state (type + camera transform)
+        // Save current viewport state
         ViewExp& vp = ip->GetActiveViewExp();
         Matrix3 savedTM;
         vp.GetAffineTM(savedTM);
-        // Save viewport type string so we can restore it after cycling views
-        std::string savedViewType;
-        try {
-            savedViewType = RunMAXScript("viewport.getType() as string");
-        } catch (...) {}
+        BOOL savedPersp = vp.IsPerspView();
 
-        // Map view names to MAXScript viewport types
+        // View definitions with affine transforms (inverse camera matrix)
+        // These set the viewport to look at the origin from each direction
         struct ViewDef {
             std::string name;
-            std::string msType;
             std::wstring label;
+            bool persp;      // true = perspective, false = orthographic
+            Matrix3 tm;      // affine TM for ViewExp::SetAffineTM
         };
+
+        // Orthographic view transforms (affine TM = inverse camera)
+        // Front: camera looks down -Y → rows: X=right, Y=up(Z), Z=forward(Y)
+        Matrix3 frontTM(Point3(1,0,0), Point3(0,0,1), Point3(0,-1,0), Point3(0,100,0));
+        // Back: camera looks down +Y
+        Matrix3 backTM(Point3(-1,0,0), Point3(0,0,1), Point3(0,1,0), Point3(0,-100,0));
+        // Left: camera looks down +X
+        Matrix3 leftTM(Point3(0,1,0), Point3(0,0,1), Point3(1,0,0), Point3(-100,0,0));
+        // Right: camera looks down -X
+        Matrix3 rightTM(Point3(0,-1,0), Point3(0,0,1), Point3(-1,0,0), Point3(100,0,0));
+        // Top: camera looks down -Z
+        Matrix3 topTM(Point3(1,0,0), Point3(0,1,0), Point3(0,0,1), Point3(0,0,100));
+        // Bottom: camera looks down +Z
+        Matrix3 bottomTM(Point3(1,0,0), Point3(0,-1,0), Point3(0,0,-1), Point3(0,0,-100));
+
         std::map<std::string, ViewDef> viewMap = {
-            {"front",       {"front",       "#view_front",         L"FRONT"}},
-            {"back",        {"back",        "#view_back",          L"BACK"}},
-            {"left",        {"left",        "#view_left",          L"LEFT"}},
-            {"right",       {"right",       "#view_right",         L"RIGHT"}},
-            {"top",         {"top",         "#view_top",           L"TOP"}},
-            {"bottom",      {"bottom",      "#view_bottom",        L"BOTTOM"}},
-            {"perspective", {"perspective", "#view_persp_user",    L"PERSP"}},
+            {"front",       {"front",       L"FRONT",   false, frontTM}},
+            {"back",        {"back",        L"BACK",    false, backTM}},
+            {"left",        {"left",        L"LEFT",    false, leftTM}},
+            {"right",       {"right",       L"RIGHT",   false, rightTM}},
+            {"top",         {"top",         L"TOP",     false, topTM}},
+            {"bottom",      {"bottom",      L"BOTTOM",  false, bottomTM}},
+            {"perspective", {"perspective", L"PERSP",   true,  Matrix3()}},
         };
 
         // Collect views to capture
@@ -174,10 +187,12 @@ std::string NativeHandlers::CaptureMultiView(const std::string& params, MCPBridg
         int vpWidth = 0, vpHeight = 0;
 
         for (auto& view : views) {
-            // Set viewport type
-            if (view.msType != "#view_persp_user") {
-                RunMAXScript("viewport.setType " + view.msType);
+            // Set viewport orientation via SDK (no MAXScript needed)
+            if (!view.persp) {
+                vp.SetViewUser(FALSE);       // orthographic
+                vp.SetAffineTM(view.tm);
             }
+            // For perspective, keep current viewport transform
 
             // Zoom extents
             ip->ViewportZoomExtents(FALSE, FALSE);
@@ -189,7 +204,6 @@ std::string NativeHandlers::CaptureMultiView(const std::string& params, MCPBridg
             ViewExp& activeVP = ip->GetActiveViewExp();
             Gdiplus::Bitmap* bmp = CaptureViewportDIB(&activeVP);
             if (!bmp) {
-                // Cleanup and throw
                 for (auto* b : captures) delete b;
                 throw std::runtime_error("Failed to capture viewport for: " + view.name);
             }
@@ -202,10 +216,8 @@ std::string NativeHandlers::CaptureMultiView(const std::string& params, MCPBridg
             captures.push_back(bmp);
         }
 
-        // Restore original viewport state (type first, then camera transform)
-        if (!savedViewType.empty()) {
-            RunMAXScript("viewport.setType " + savedViewType);
-        }
+        // Restore original viewport state
+        vp.SetViewUser(savedPersp);
         vp.SetAffineTM(savedTM);
         ip->RedrawViews(t);
 

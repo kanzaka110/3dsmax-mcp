@@ -681,15 +681,20 @@ def get_material_slots(
     name: str,
     sub_material_index: int = 0,
     include_values: bool = False,
-    max_slots: int = 60,
+    max_slots: int = 40,
     slot_scope: str = "map",
-    max_per_group: int = 20,
+    max_per_group: int = 15,
 ) -> str:
     """Get compact material slot/property info without schema caches.
 
     This is a token-efficient runtime inspector that categorizes material
     properties into map/color/numeric/bool slots directly from 3ds Max.
     Use this when an agent needs practical slot names before writing values.
+
+    IMPORTANT: Prefer slot_scope="map" (default) or "summary" over "all".
+    Using "all" with include_values=True on complex materials (Physical,
+    Arnold) returns 40+ params and is heavy. Never call this in parallel
+    with other material tools — serialize material operations.
 
     Args:
         name: Object name whose material should be inspected.

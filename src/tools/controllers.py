@@ -144,9 +144,9 @@ def assign_controller(
             "name": name,
             "param_path": param_path,
             "controller_type": controller_type,
-            "script": script,
+            "script": script or "",
             "variables": list(variables) if variables else [],
-            "params": params or {},
+            "params": {k: str(v) for k, v in (params or {}).items()},
             "layer": layer,
         }
         response = client.send_command(_json.dumps(payload), cmd_type="native:assign_controller")
@@ -625,18 +625,8 @@ def add_controller_target(
     Returns:
         Confirmation message.
     """
-    if client.native_available:
-        payload = {
-            "name": name,
-            "param_path": param_path,
-            "target_object": target_object,
-            "var_name": var_name or "",
-            "weight": weight,
-            "frame": frame,
-        }
-        response = client.send_command(_json.dumps(payload), cmd_type="native:add_controller_target")
-        return response.get("result", "")
-
+    # Always use MAXScript TCP path — ctrl.addNode triggers script re-evaluation
+    # which causes re-entrancy inside the native ExecuteSync handler.
     safe_obj = safe_name(name)
     safe_path = safe_string(normalize_subanim_path(param_path))
     safe_target = safe_name(target_object)
@@ -730,8 +720,8 @@ def set_controller_props(
         payload = {
             "name": name,
             "param_path": param_path,
-            "script": script,
-            "params": params or {},
+            "script": script or "",
+            "params": {k: str(v) for k, v in (params or {}).items()},
         }
         response = client.send_command(_json.dumps(payload), cmd_type="native:set_controller_props")
         return response.get("result", "")

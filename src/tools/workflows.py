@@ -198,7 +198,7 @@ def assign_material_verified(
 ) -> str:
     """Assign a material, then verify the assignment on the target objects."""
     from .inspect import inspect_object
-    from .material_ops import assign_material, get_material_slots
+    from .material_ops import assign_material
     from .snapshots import get_scene_delta
 
     _load_json(get_scene_delta(capture=True), {})
@@ -210,16 +210,10 @@ def assign_material_verified(
     )
     delta = _load_json(get_scene_delta(), {})
 
-    slot_summary = None
-    if names:
-        raw_slots = get_material_slots(names[0], slot_scope="summary", include_values=True)
-        slot_summary = _load_json(raw_slots, {"raw": raw_slots})
-
     return json.dumps({
         "assignResult": assign_result,
         "delta": delta,
         "objects": _inspect_objects(names),
-        "materialSlots": slot_summary,
     })
 
 

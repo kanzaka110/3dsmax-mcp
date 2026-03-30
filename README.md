@@ -7,86 +7,60 @@
 MCP server that connects AI agents to Autodesk 3ds Max.
 Works with Claude Code, Claude Desktop, Codex, Gemini, and any MCP-compatible client.
 
-## Features
+### What's new in 0.5.0
 
-- Inspect and manipulate scenes — objects, materials, modifiers, hierarchies
-- Create objects, assign materials, build PBR setups from texture folders
-- Transform, clone, parent, hide/freeze objects in bulk
-- Write OSL shaders
-- Advanced viewport captures
-- Self-describing plugin runtime and deep SDK level introspection.
-- Access controllers, wire parameters, data channels
-- Write MAXScript in a loop — agents iterate until it works
-- Python scripting (requires safe mode off)
-- Read .max files without opening them, batch inspect assets (Native plugin only)
+- **Native C++ Bridge** — 76 handlers running inside 3ds Max as a GUP plugin, 86-130x faster than MAXScript
+- **One-step installer** — `uv run python install.py` handles everything
+- **Multi-view capture** — pure SDK viewport switching, no MAXScript re-entrancy
+- **Controller & wiring tools** — assign controllers, wire parameters, inspect track views
+- **PB1 fallback** — legacy primitives (Capsule, Hedra, etc.) now get correct params
+- **159 tools** across scene, objects, materials, modifiers, controllers, viewport, introspection.
+- **Bundled MAXScript reference** — 10 topic files for agents to write correct MAXScript
 
 ## Architecture
 
 ```
-Agent  <-->  FastMCP (Python/stdio)  <-->  Named Pipe <-->  3ds Max SDK
+Agent  <-->  FastMCP (Python/stdio)  <-->  Named Pipe  <-->  C++ GUP Plugin  <-->  3ds Max SDK
                                       |
                                       +--> TCP:8765 fallback --> MAXScript listener
 ```
 
-The C++ plugin (`mcp_bridge.gup`) runs inside 3ds Max as a Global Utility Plugin. It reads the scene graph directly through the SDK and communicates with the Python MCP server over Windows named pipes. 
+The native bridge runs inside 3ds Max as a Global Utility Plugin. It reads the scene graph directly through the C++ SDK and communicates over Windows named pipes. 76 native handlers for scene, objects, materials, modifiers, controllers, viewport, introspection, and more.
 
-If plugin is not installed it will fallback to TCP.
-
-## Prerequisites
+## Requirements
 
 - [Python 3.10+](https://www.python.org/)
 - [uv](https://docs.astral.sh/uv/)
-- Autodesk 3ds Max 2026
+- Autodesk 3ds Max 2026 (2024/2025 supported via MAXScript fallback)
 
-## Setup
+## Installation
 
-### 1. Clone and install
-
-```bash
+```powershell
 git clone https://github.com/cl0nazepamm/3dsmax-mcp.git
 cd 3dsmax-mcp
 uv sync
-python scripts/build_skill.py
+uv run python install.py
 ```
 
-### 2. Install the native bridge (Max 2026)
+The installer will:
+- Detect your 3ds Max installation
+- Deploy the native bridge plugin (`.gup`)
+- Install the MAXScript listener (TCP fallback)
+- Build skill files for your agents
+- Register with Claude Code / Codex / Gemini / Claude Desktop
 
-Copy `mcp_bridge.gup` to your 3ds Max plugins folder:
+Restart 3ds Max and any running agents after installation.
 
-```
-C:\Program Files\Autodesk\3ds Max 2026\plugins\
-```
+### Manual registration
 
-Restart 3ds Max. The bridge starts automatically — no UI, no configuration.
+If the installer can't find your agent, register manually:
 
-### 3. Install the MAXScript listener
-
-Only needed if you're not using the C++ plugin (e.g. Max 2024/2025). The native bridge handles everything including MAXScript execution internally.
-
-1. Copy `maxscript/mcp_server.ms` to:
-   ```
-   [3ds Max Install Dir]/scripts/mcp/mcp_server.ms
-   ```
-
-2. Copy `maxscript/startup/mcp_autostart.ms` to:
-   ```
-   [3ds Max Install Dir]/scripts/startup/mcp_autostart.ms
-   ```
-
-3. Restart 3ds Max. You should see `MCP: Auto-start complete` in the MAXScript Listener.
-
-### 4. Register with your agent
-
-**Claude Code / Codex / Gemini** (PowerShell):
-
-```bash
+**Claude Code / Codex / Gemini:**
+```powershell
 claude mcp add --scope user 3dsmax-mcp -- uv run --directory "C:\path\to\3dsmax-mcp" 3dsmax-mcp
-codex mcp add 3dsmax-mcp -- uv run --directory "C:\path\to\3dsmax-mcp" 3dsmax-mcp
-gemini mcp add --scope user 3dsmax-mcp -- uv run --directory "C:\path\to\3dsmax-mcp" 3dsmax-mcp
 ```
 
-**Claude Desktop** — edit `%APPDATA%\Claude\claude_desktop_config.json`:
-
+**Claude Desktop** — add to `%APPDATA%\Claude\claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
@@ -98,80 +72,63 @@ gemini mcp add --scope user 3dsmax-mcp -- uv run --directory "C:\path\to\3dsmax-
 }
 ```
 
-Replace paths with your actual clone location.
+## Updating
 
-### 5. Skill file
+```powershell
+git pull
+uv sync
+uv run python install.py
+```
 
-The skill file teaches agents 3ds Max conventions and pitfalls. It grows automatically via the `learn-from-mistakes` flag.
+## Skill file
 
-```bash
+The skill file teaches agents how to use the tools, what pitfalls to avoid, and how 3ds Max works. Without it, agents will guess wrong on material workflows, controller paths, and plugin APIs. The installer builds and deploys it automatically.
+
+If you need to rebuild manually:
+```powershell
 python scripts/build_skill.py
-python scripts/register.py
 ```
-
-For global access across agents, symlink the skill folder:
-
-```cmd
-mklink /D "%USERPROFILE%\.claude\skills\3dsmax-mcp-dev" "C:\path\to\3dsmax-mcp\skills\3dsmax-mcp-dev"
-mklink /D "%USERPROFILE%\.agents\skills\3dsmax-mcp-dev" "C:\path\to\3dsmax-mcp\skills\3dsmax-mcp-dev"
-```
-
-## Skill notice
-
-Codex usually activates the skill automatically but Claude requires manual activation via prompt (activate 3dsmax skill) but you can use "claude.md" or memory file.
-
 
 ## Safe mode
 
-The MAXScript listener runs with safe mode ON by default. Blocked operations:
-
-- `DOSCommand` — shell execution
-- `ShellLaunch` — launch external apps
-- `deleteFile` — delete files from disk
-- `python.Execute` — Python inside Max
-- `createFile` — write files to disk
+The native bridge runs with safe mode ON by default. Blocked:
+`DOSCommand`, `ShellLaunch`, `deleteFile`, `python.Execute`, `createFile`
 
 Everything else is allowed: scene operations, file reads, renders, viewport captures, saves.
 
-To disable, set `safeMode = false` in `maxscript/mcp_server.ms`.
+## Tools
 
-## Project structure
+159 tools across scene management, objects, materials, modifiers, controllers, wiring, viewport capture, file access, plugin introspection, tyFlow, Forest Pack, RailClone, Data Channel, and more.
 
-```
-src/
-  server.py              FastMCP server entry point
-  max_client.py          Named pipe + TCP client
-  tools/                 113 MCP tool implementations
-maxscript/
-  mcp_server.ms          MAXScript TCP listener (runs inside Max)
-  startup/               Auto-start loader
-native/
-  bin/mcp_bridge.gup     Pre-built C++ plugin (Max 2026)
-  src/                   C++ source (GUP, pipe server, native handlers)
-  include/               Headers
-  CMakeLists.txt         Build config (VS 2022, Max 2026 SDK)
-skills/
-  3dsmax-mcp-dev/        Skill file (conventions, pitfalls, patterns)
-```
+| Category | Tools | Transport |
+|----------|-------|-----------|
+| Scene reads | `get_scene_info`, `get_selection`, `get_scene_snapshot`, `get_selection_snapshot`, `get_scene_delta`, `get_hierarchy`, `get_session_context` | C++ |
+| Objects | `create_object`, `delete_objects`, `transform_object`, `clone_objects`, `select_objects`, `set_object_property`, `set_visibility`, `set_parent`, `batch_rename_objects` | C++/Hybrid |
+| Inspection | `inspect_object`, `inspect_properties`, `introspect_class`, `introspect_instance`, `walk_references`, `learn_scene_patterns`, `map_class_relationships` | C++ |
+| Materials | `assign_material`, `set_material_property`, `get_material_slots`, `create_texture_map`, `write_osl_shader`, `create_shell_material`, `replace_material` | Hybrid |
+| Modifiers | `add_modifier`, `remove_modifier`, `set_modifier_state`, `collapse_modifier_stack`, `batch_modify` | Hybrid |
+| Controllers | `assign_controller`, `inspect_controller`, `inspect_track_view`, `set_controller_props`, `add_controller_target` | Hybrid |
+| Wiring | `wire_params`, `unwire_params`, `get_wired_params`, `list_wireable_params` | Hybrid |
+| Viewport | `capture_viewport`, `capture_multi_view`, `capture_screen`, `render_scene` | C++ |
+| Organization | `manage_layers`, `manage_groups`, `manage_selection_sets`, `manage_scene` | C++ |
+| File access | `inspect_max_file`, `merge_from_file`, `search_max_files`, `batch_file_info` | C++ |
+| Plugins | `discover_plugin_classes`, `introspect_class`, `introspect_instance`, `get_plugin_capabilities` | C++ |
+| Scene events | `watch_scene`, `get_scene_delta` | C++ |
+| tyFlow | `create_tyflow`, `get_tyflow_info`, `modify_tyflow_operator`, `set_tyflow_shape`, `reset_tyflow_simulation` | MAXScript |
+| Forest Pack | `scatter_forest_pack`, `verify_scatter_output` | MAXScript |
+| Data Channel | `add_data_channel`, `inspect_data_channel`, `set_data_channel_operator` | MAXScript |
+| Scripting | `execute_maxscript` | Pipe |
 
-## Building the native plugin from source
+## Building from source (native bridge)
 
-Only needed if you want to modify the C++ code. Requires Visual Studio 2022 (v143 toolset) and the 3ds Max 2026 SDK.
+Only needed if you want to modify the C++ plugin.
 
-```bash
+Requires: 3ds Max 2026 SDK, Visual Studio 2022, CMake 3.20+
+
+```powershell
 cd native
-cmake -B build -G "Visual Studio 17 2022" -A x64 .
+cmake -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
 ```
 
-Output: `native/build/Release/mcp_bridge.gup`
-
-## Updating
-
-```bash
-git pull
-uv sync
-python scripts/build_skill.py
-```
-
-Copy the updated `mcp_bridge.gup` to your Max plugins folder if changed.
+Then copy `native/build/Release/mcp_bridge.gup` to `C:\Program Files\Autodesk\3ds Max 2026\plugins\`.

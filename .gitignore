@@ -12,6 +12,7 @@ build/
 .agents/
 AGENTS.md
 TODO.md
+PROJECT_OVERVIEW.md
 *.skill
 nul
 cache/

@@ -1,0 +1,196 @@
+#!/usr/bin/env python3
+"""uninstall 3dsmax-mcp. Removes native bridge, MAXScript, skills, and agent registrations.
+
+Run:  uv run python uninstall.py
+"""
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+
+MAX_DIRS = [
+    Path(r"C:\Program Files\Autodesk\3ds Max 2026"),
+    Path(r"C:\Program Files\Autodesk\3ds Max 2025"),
+    Path(r"C:\Program Files\Autodesk\3ds Max 2024"),
+]
+
+
+def find_max() -> Path | None:
+    for d in MAX_DIRS:
+        if (d / "3dsmax.exe").exists():
+            return d
+    return None
+
+
+def delete_elevated(path: Path) -> bool:
+    if not path.exists():
+        return True
+    try:
+        path.unlink()
+        return True
+    except PermissionError:
+        cmd = f'del /F "{path}"'
+        subprocess.run(
+            ["powershell", "-Command",
+             f'Start-Process -FilePath cmd.exe -ArgumentList \'/c {cmd}\' -Verb RunAs -Wait'],
+            capture_output=True, timeout=30,
+        )
+        return not path.exists()
+
+
+def rmdir(path: Path):
+    """Remove a directory, symlink, or junction."""
+    if path.is_symlink() or path.is_junction():
+        # Symlinks/junctions: unlink the link, don't follow into target
+        path.unlink()
+        return
+    if not path.exists():
+        return
+    import shutil
+    shutil.rmtree(path, ignore_errors=True)
+
+
+def main():
+    print("=" * 60)
+    print("  3dsmax-mcp uninstaller")
+    print("=" * 60)
+
+    # 1. Remove native bridge + MAXScript from Max
+    max_dir = find_max()
+    if max_dir:
+        print(f"\nFound 3ds Max at: {max_dir}")
+
+        gup = max_dir / "plugins" / "mcp_bridge.gup"
+        ms_server = max_dir / "scripts" / "mcp" / "mcp_server.ms"
+        ms_auto = max_dir / "scripts" / "startup" / "mcp_autostart.ms"
+        ms_dir = max_dir / "scripts" / "mcp"
+
+        print("\n[1/4] Removing native bridge + MAXScript")
+        for f in [gup, ms_server, ms_auto]:
+            if f.exists():
+                if delete_elevated(f):
+                    print(f"  Deleted: {f}")
+                else:
+                    print(f"  FAILED: {f}")
+            else:
+                print(f"  Already gone: {f.name}")
+
+        # Remove empty mcp/ dir
+        if ms_dir.exists() and not any(ms_dir.iterdir()):
+            try:
+                ms_dir.rmdir()
+            except Exception:
+                pass
+    else:
+        print("\n[1/4] SKIP: 3ds Max not found")
+
+    # 2. remove skill files, symlinks, junctions, and .skill archives
+    print("\n[2/4] Removing skill files")
+    SKILL_NAME = "3dsmax-mcp-dev"
+
+    # known skill directories (real folders, symlinks, or junctions)
+    skill_dirs = [
+        ROOT / ".claude" / "skills" / SKILL_NAME,
+        ROOT / ".agents" / "skills" / SKILL_NAME,
+        Path.home() / ".claude" / "skills" / SKILL_NAME,
+        Path.home() / ".agents" / "skills" / SKILL_NAME,
+    ]
+
+    # also scan parent skill folders for any symlinks/junctions pointing to our skill
+    scan_parents = [
+        ROOT / ".claude" / "skills",
+        ROOT / ".agents" / "skills",
+        Path.home() / ".claude" / "skills",
+        Path.home() / ".agents" / "skills",
+    ]
+    for parent in scan_parents:
+        if not parent.exists():
+            continue
+        for entry in parent.iterdir():
+            if entry.name == SKILL_NAME:
+                if entry not in skill_dirs:
+                    skill_dirs.append(entry)
+            # Catch renamed symlinks pointing to our skill
+            if entry.is_symlink() or entry.is_junction():
+                try:
+                    target = str(entry.resolve())
+                    if SKILL_NAME in target:
+                        if entry not in skill_dirs:
+                            skill_dirs.append(entry)
+                except Exception:
+                    pass
+
+    for d in skill_dirs:
+        if d.exists() or d.is_symlink() or d.is_junction():
+            kind = "symlink" if d.is_symlink() else "junction" if d.is_junction() else "dir"
+            rmdir(d)
+            print(f"  Removed ({kind}): {d}")
+
+    # remove generated files and .skill archives
+    gen_files = [ROOT / "AGENTS.md", ROOT / f"{SKILL_NAME}.skill"]
+    # also check home for stray .skill files
+    home_skill = Path.home() / ".claude" / f"{SKILL_NAME}.skill"
+    if home_skill.exists():
+        gen_files.append(home_skill)
+
+    for f in gen_files:
+        if f.exists():
+            f.unlink()
+            print(f"  Removed: {f}")
+
+    # 3. unregister from agents
+    print("\n[3/4] Unregistering from agents")
+    agent_cmds = {
+        "claude": "claude mcp remove --scope user 3dsmax-mcp",
+        "codex": "codex mcp remove 3dsmax-mcp",
+        "gemini": "gemini mcp remove --scope user 3dsmax-mcp",
+    }
+    for agent, cmd in agent_cmds.items():
+        try:
+            result = subprocess.run(cmd, shell=True, capture_output=True, timeout=15)
+            if result.returncode == 0:
+                print(f"  Removed from {agent}")
+            else:
+                print(f"  Not registered in {agent}")
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+    # app configs that store mcpServers
+    app_configs = [
+        ("Claude Desktop", Path(os.environ.get("APPDATA", "")) / "Claude" / "claude_desktop_config.json"),
+        ("Gemini", Path.home() / ".gemini" / "settings.json"),
+    ]
+    for label, config_path in app_configs:
+        if not config_path.exists():
+            continue
+        try:
+            config = json.loads(config_path.read_text("utf-8"))
+            servers = config.get("mcpServers", {})
+            if "3dsmax-mcp" in servers:
+                del servers["3dsmax-mcp"]
+                config_path.write_text(json.dumps(config, indent=2) + "\n", "utf-8")
+                print(f"  Removed from {label} ({config_path})")
+        except Exception:
+            pass
+
+    # 4. clean local build artifacts
+    print("\n[4/4] Cleaning build artifacts")
+    for d in [ROOT / ".claude" / "skills", ROOT / ".agents" / "skills"]:
+        if d.exists() and not any(d.iterdir()):
+            d.rmdir()
+
+    print("\n" + "=" * 60)
+    print("  deinstalled! restart 3ds Max to unload the native bridge.")
+    print("  the repo itself is untouched. you can run install.py to reinstall.")
+    print(" ")
+    print("  clone // Metaverse Makers. 2026 ")
+    print("=" * 60)
+    print()
+
+
+if __name__ == "__main__":
+    main()

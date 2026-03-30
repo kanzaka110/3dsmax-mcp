@@ -219,6 +219,12 @@ Never as default when a proper tool exists.
 ## 7. MCP Tool Pitfalls
 
 - Fast/small models send `"foo"` instead of `["foo"]` for list params — all tool signatures use coerced types (`StrList`, `FloatList`, `IntList`, `DictList` from `src/coerce.py`) that auto-wrap single values into one-element lists. Any new tool with a `list[T]` param **must** use these types instead of bare `list[]`.
+- **Serialize material operations** — never run `get_material_slots`, `assign_material_verified`, or `set_material_verified` in parallel with each other. They send multiple sequential pipe commands and concurrent flooding can freeze the 3ds Max main thread. Run material tools one at a time.
+- `get_material_slots` with `slot_scope:"all"` + `include_values:true` is heavy on complex materials (Physical, Arnold). Prefer `slot_scope:"map"` (default) unless you need every param.
+- `assign_controller` and `set_controller_props` `params` dict values must work as both strings and numbers — the native handler coerces automatically. Small models may send `{"seed": 42}` (number) or `{"seed": "42"}` (string); both are valid.
+- `list_wireable_params` returns paths with `[#Parameters]` grouping level (e.g. `[#Object (Box)][#Parameters][#height]`). The native `NormalizeSubAnimPath` strips this automatically when passed to `wire_params`/`assign_controller`/`unwire_params`.
+- `get_wired_params` returns paths with `[#name]` format. These paths can be passed directly to `unwire_params` — `NormalizeSubAnimPath` handles both `[name]` and `[#name]` formats.
+- `add_controller_target` only works on script, expression, and constraint controllers. Noise/Bezier/other controllers will return a clear error message. Use `assign_controller` with `controller_type:"float_script"` if you need node references.
 
 ## 8. MAXScript Pitfalls
 
@@ -253,7 +259,7 @@ Never as default when a proper tool exists.
 
 ## 9. C++ SDK Pitfalls
 
-- `is_array()` macro collision with MAXScript headers — use `.type() == json::value_t::array`
+- `is_array()` / `is_string()` / `is_number_*()` / `is_boolean()` macro collision with MAXScript headers — use `.type() == json::value_t::array` / `::string` / `::number_float` / `::number_integer` / `::boolean` instead
 - `Matrix3(1)` deprecated in Max 2026 — use `Matrix3()` default
 - `Modifier::GetName(bool localized)` — use `mod->GetName(false).data()`
 - `ClassDesc::ClassName()` returns `const MCHAR*`, not a string class
@@ -261,7 +267,31 @@ Never as default when a proper tool exists.
 - `WStr::operator bool` deleted in Max 2026 — use `.data() && .data()[0]` checks
 - Native scene-delta baselines must be scoped per pipe client and cleared on scene reset/fetch; one process-global snapshot leaks across simultaneous agents and unrelated scenes.
 
-## 10. Architecture
+## 10. MAXScript Reference Files
+
+This skill includes bundled MAXScript reference files for writing correct MAXScript. Read the relevant file BEFORE writing MAXScript code for unfamiliar areas.
+
+| File | Covers |
+|------|--------|
+| `maxscript-core-syntax.md` | Variables, scope, types, operators, control flow, collections, strings |
+| `maxscript-common-patterns.md` | Undo blocks, animate blocks, callbacks, file I/O, performance |
+| `maxscript-3dsmax-objects.md` | Node creation, transforms, hierarchy, properties, superclasses |
+| `maxscript-mesh-poly-ops.md` | Mesh/poly sub-object ops, vertex/edge/face manipulation |
+| `maxscript-materials-textures.md` | Material creation, texmap wiring, Standard/Physical/Arnold |
+| `maxscript-animation-controllers.md` | Controllers, constraints, expressions, wire params |
+| `maxscript-rendering-cameras.md` | Render settings, cameras, environment, render elements |
+| `maxscript-splines-shapes.md` | Spline creation, knots, interpolation, shape booleans |
+| `maxscript-scripted-plugins.md` | Custom scripted geometry, modifiers, materials, utilities |
+| `maxscript-ui-rollouts.md` | Rollout UIs, dialogs, controls, event handlers |
+
+**IMPORTANT:** Before writing any MAXScript, READ the relevant file. Do not guess syntax.
+
+**Location:** `skills/3dsmax-mcp-dev/` in the project root. Example:
+```
+Read: skills/3dsmax-mcp-dev/maxscript-materials-textures.md
+```
+
+## 11. Architecture
 
 ```
 Agent <-> FastMCP (Python/stdio) <-> Named Pipe <-> C++ GUP Plugin <-> 3ds Max SDK
