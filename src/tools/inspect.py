@@ -280,3 +280,135 @@ def inspect_modifier_properties(name: str, modifier_index: int) -> str:
         JSON with all modifier properties, values, and types.
     """
     return inspect_properties(name, target="modifier", modifier_index=modifier_index)
+
+
+@mcp.tool()
+def introspect_osl(
+    class_name: str = "",
+    name: str = "",
+    osl_file: str = "",
+    sub_material_index: int = 0,
+) -> str:
+    """Inspect the API surface of any material, texturemap, or modifier class.
+
+    Returns classOf, superClassOf, all properties with types, interfaces with
+    methods, and output channels. Lightweight MAXScript reflection — bounded
+    output, no 600K blowups.
+
+    Use this instead of introspect_class when you need a quick property/interface
+    dump for materials, texturemaps, or OSLMaps.
+
+    Args:
+        class_name: Class to inspect (e.g. "OSLMap", "PhysicalMaterial",
+                    "Bitmaptexture", "TurboSmooth"). Creates a temp instance.
+        name: Object name — inspects its material instead of creating temp.
+        osl_file: For OSLMap: .osl filename (e.g. "UberBitmap2") or full path.
+                  Short names resolve to (getDir #maxRoot)/OSL/<name>.osl
+        sub_material_index: Sub-material slot (1-based). 0 = top material.
+    """
+    if not class_name and not name:
+        return '{"error":"Provide class_name or name"}'
+
+    safe_class = safe_string(class_name)
+    safe_name = safe_string(name)
+    safe_osl = safe_string(osl_file)
+
+    # Build the target expression
+    if name:
+        if sub_material_index > 0:
+            target_setup = f'''
+            local obj = getNodeByName "{safe_name}"
+            if obj == undefined do throw "Object not found"
+            if obj.material == undefined do throw "No material on object"
+            local m = obj.material[{sub_material_index}]
+            if m == undefined do throw "Sub-material index {sub_material_index} not found"
+            '''
+        else:
+            target_setup = f'''
+            local obj = getNodeByName "{safe_name}"
+            if obj == undefined do throw "Object not found"
+            if obj.material == undefined do throw "No material on object"
+            local m = obj.material
+            '''
+    else:
+        target_setup = f'local m = {safe_class}()'
+
+    # OSL setup
+    osl_setup = ""
+    if osl_file and class_name.lower() in ("oslmap", "osl_map", "osl"):
+        if "\\" in osl_file or "/" in osl_file:
+            osl_setup = f'm.OSLPath = @"{safe_osl}"\nm.OSLAutoUpdate = true'
+        else:
+            osl_setup = f'm.OSLPath = (getDir #maxRoot) + "OSL\\\\{safe_osl}.osl"\nm.OSLAutoUpdate = true'
+
+    maxscript = f"""(
+        local esc = MCP_Server.escapeJsonString
+        try (
+            {target_setup}
+            {osl_setup}
+
+            -- Validate OSL compiled (shader name stays "Example" on failure)
+            if (classOf m) == OSLMap and m.OSLShaderName == "Example" do (
+                local badPath = try (m.OSLPath) catch ""
+                throw ("OSL shader failed to compile — file not found or invalid: " + (badPath as string))
+            )
+
+            local cls = (classOf m) as string
+            local scls = (superClassOf m) as string
+
+            -- Properties from showProperties (name + type)
+            local ss = stringStream ""
+            showProperties m to:ss
+            seek ss 0
+            local propsJson = "["
+            local pFirst = true
+            while not (eof ss) do (
+                local ln = readline ss
+                local parts = filterString ln ":"
+                if parts.count >= 2 do (
+                    local propName = trimRight (trimLeft parts[1] " .")
+                    local propType = trimLeft (trimRight parts[2])
+                    if propName.count > 0 do (
+                        if not pFirst do propsJson += ","
+                        propsJson += "{{\\\"name\\\":\\\"" + (esc propName) + "\\\",\\\"type\\\":\\\"" + (esc propType) + "\\\"}}"
+                        pFirst = false
+                    )
+                )
+            )
+            propsJson += "]"
+
+            -- Interfaces
+            local iss = stringStream ""
+            showInterfaces m to:iss
+            local ifaceStr = iss as string
+
+            -- Output channels (multi-output maps like UberBitmap)
+            local chJson = "[]"
+            try (
+                local nch = m.numIMultipleOutputChannels
+                if nch != undefined and nch > 0 do (
+                    chJson = "["
+                    for i = 1 to nch do (
+                        if i > 1 do chJson += ","
+                        local cName = m.getIMultipleOutputChannelName i
+                        local cType = (m.getIMultipleOutputChannelType i) as string
+                        chJson += "{{\\\"index\\\":" + (i as string) + ",\\\"name\\\":\\\"" + (esc cName) + "\\\",\\\"type\\\":\\\"" + (esc cType) + "\\\"}}"
+                    )
+                    chJson += "]"
+                )
+            ) catch ()
+
+            -- Cleanup temp instance if we created one (not from scene object)
+            {"" if name else "try (delete m) catch ()"}
+
+            "{{\\\"class\\\":\\\"" + (esc cls) + "\\\"," +
+            "\\\"superClass\\\":\\\"" + (esc scls) + "\\\"," +
+            "\\\"properties\\\":" + propsJson + "," +
+            "\\\"outputChannels\\\":" + chJson + "," +
+            "\\\"interfaces\\\":\\\"" + (esc ifaceStr) + "\\\"}}"
+        ) catch (
+            "{{\\\"error\\\":\\\"" + (esc (getCurrentException())) + "\\\"}}"
+        )
+    )"""
+    response = client.send_command(maxscript, timeout=15.0)
+    return response.get("result", "{}")

@@ -15,12 +15,14 @@ Principles:
 When encountering an unfamiliar class, plugin, or object — **use C++ SDK introspection first**. These read the DLL class registry directly. Faster and more complete than MAXScript's `showClass`/`getPropNames`.
 
 **Tool hierarchy:**
-1. **`introspect_class`** — Full API of any class: ParamBlock2 params (names, types, defaults, ranges), FPInterface functions/properties. Works on any class.
+1. **`introspect_class`** — Full API of any class: ParamBlock2 params (names, types, defaults, ranges), FPInterface functions/properties. Works on any class. **Blocked for OSLMap** — use `introspect_osl` instead.
 2. **`introspect_instance`** — Same but on a live object with current values + modifier stack + material params. Add `include_subanims:true` for animation tree.
-3. **`discover_plugin_classes`** — Enumerate ALL classes from DLL directory. Filter by superclass or name pattern.
+3. **`introspect_osl`** — Lightweight reflection for OSLMap and any material/texturemap class. Creates a temp instance, dumps properties with types, interfaces, and output channels. For OSLMap, use `osl_file` param to load a shader (e.g. `osl_file:"UberBitmap2"`). Short names resolve to `(getDir #maxRoot)/OSL/<name>.osl`.
+4. **`discover_plugin_classes`** — Enumerate ALL classes from DLL directory. Filter by superclass or name pattern.
 
 **Always prefer these over MAXScript reflection:**
 - `introspect_class` > `inspect_plugin_class` (gets defaults, ranges, function signatures)
+- `introspect_osl` for OSLMap and scripted material/map classes (bounded output, handles dynamic params)
 - `introspect_instance` > `inspect_properties` for plugin objects (catches params `getPropNames` misses)
 - `discover_plugin_classes` > `list_plugin_classes` (scans every loaded DLL)
 
@@ -84,7 +86,7 @@ When the user is developing a tool, plugin, or automating a workflow and you nee
 2. introspect_class class_name:"ClassName"          → get ALL params, types, defaults, ranges, functions
 3. map_class_relationships pattern:"ClassName"      → see what it accepts (nodes, materials, texmaps)
 ```
-NOTE: Arnold materials (ai_standard_surface, etc.) are scripted plugins — `discover_plugin_classes` and `introspect_class` won't find them. Create via MAXScript: `ai_standard_surface()`. Use `inspect_plugin_class` for MAXScript reflection instead.
+NOTE: Arnold materials (ai_standard_surface, etc.) are scripted plugins — `discover_plugin_classes` and `introspect_class` won't find them. Create via MAXScript: `ai_standard_surface()`. Use `inspect_plugin_class` or `introspect_osl` for reflection instead.
 
 **Understanding how a live object works:**
 ```
@@ -245,9 +247,11 @@ Never as default when a proper tool exists.
 
 ### OSL Shader Rules
 - Use `write_osl_shader` — handles file I/O, compilation, global storage
+- Use `introspect_osl` to inspect any OSL shader's properties and output channels before wiring
 - Shader function name MUST match `shader_name` exactly
 - Use unique shader names — reusing hits stale cache
 - OSLMap lowercases all param names — use lowercase keys
+- `introspect_class` is blocked for OSLMap (663K+ output) — always use `introspect_osl` instead
 - After creation, wire via `set_material_property`
 
 ## 9. C++ SDK Pitfalls

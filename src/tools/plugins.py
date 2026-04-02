@@ -1211,10 +1211,16 @@ def introspect_class(
 
     Requires the native C++ bridge plugin.
 
+    For OSLMap / OSL classes, use introspect_osl instead — OSLMap has dynamic
+    params that produce unbounded output through the C++ path.
+
     Args:
         class_name: The class to introspect (e.g. "TurboSmooth", "Forest_Pro",
                     "PhysicalMaterial", "tyFlow").
     """
+    blocked = {"oslmap", "osl_map", "osl"}
+    if class_name.strip().lower() in blocked:
+        return json.dumps({"error": f"OSLMap has dynamic params that produce unbounded output. Use introspect_osl instead.", "redirect": "introspect_osl"})
     payload = json.dumps({"class_name": class_name})
     response = client.send_command(payload, cmd_type="native:introspect_class")
     return response.get("result", "{}")
