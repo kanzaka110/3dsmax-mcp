@@ -8,7 +8,6 @@ description: Rules, tool choices, and workflow patterns for AI agents working wi
 Principles:
 - Prefer dedicated tools over raw MAXScript
 - Prefer SDK introspection over MAXScript reflection
-- Prefer verified workflows over optimistic success strings
 - Do NOT render unless asked — but `capture_multi_view` (quad view) is encouraged after building or modifying scenes so the user can see the result
 
 ## 1. Deep SDK Introspection (Use First)
@@ -124,15 +123,10 @@ NOTE: Arnold materials (ai_standard_surface, etc.) are scripted plugins — `dis
 
 ## 3. Default Workflow
 
-1. **Context** — `get_bridge_status`, `get_session_context`, `inspect_active_target`
+1. **Context** — `get_bridge_status`, `get_scene_snapshot`
 2. **Inspect** — `introspect_instance` (preferred) or `inspect_object` + `get_material_slots`
 3. **Mutate** — use a dedicated tool (never `execute_maxscript` if a tool exists)
-4. **Verify** — `get_scene_delta`, verified tool, or re-inspect
-
-**Verified workflow tools** (action + readback in one call):
-- `create_object_verified`, `assign_material_verified`, `set_material_verified`
-- `add_modifier_verified`, `transform_object_verified`, `set_modifier_state_verified`
-- `set_object_property_verified`
+4. **Verify** — `get_scene_delta` or re-inspect after mutation
 
 ## 4. Scene Organization (Pure C++ SDK)
 
@@ -176,7 +170,7 @@ NOTE: Arnold materials (ai_standard_surface, etc.) are scripted plugins — `dis
 - No concept of render vs export material slots (Shell originalMaterial / bakedMaterial)
 
 ### Viewport
-- Fast: `capture_viewport`, `capture_model`
+- Fast: `capture_viewport`
 - Multi-angle grid: `capture_multi_view` (front/right/back/top stitched into one image)
 - Fullscreen: `capture_screen` (requires `enabled=True`)
 
@@ -192,7 +186,7 @@ NOTE: Arnold materials (ai_standard_surface, etc.) are scripted plugins — `dis
 - MCP resources: `resource://3dsmax-mcp/plugins/{name}/manifest|guide|recipes|gotchas`
 
 ### tyFlow
-- Create: `create_tyflow`, `create_tyflow_basic_verified`
+- Create: `create_tyflow`, `create_tyflow_preset`
 - Inspect: `get_tyflow_info` (enable `include_operator_properties` for deep readback)
 - Edit: `modify_tyflow_operator`, `set_tyflow_shape`, `set_tyflow_physx`, `add_tyflow_collision`
 - Simulate: `reset_tyflow_simulation`, `get_tyflow_particle_count`, `get_tyflow_particles`
@@ -219,8 +213,7 @@ Never as default when a proper tool exists.
 ## 7. MCP Tool Pitfalls
 
 - Fast/small models send `"foo"` instead of `["foo"]` for list params — all tool signatures use coerced types (`StrList`, `FloatList`, `IntList`, `DictList` from `src/coerce.py`) that auto-wrap single values into one-element lists. Any new tool with a `list[T]` param **must** use these types instead of bare `list[]`.
-- **Serialize material operations** — never run `get_material_slots`, `assign_material_verified`, or `set_material_verified` in parallel with each other. They send multiple sequential pipe commands and concurrent flooding can freeze the 3ds Max main thread. Run material tools one at a time.
-- `get_material_slots` with `slot_scope:"all"` + `include_values:true` is heavy on complex materials (Physical, Arnold). Prefer `slot_scope:"map"` (default) unless you need every param.
+- `get_material_slots` with `slot_scope:"all"` + `include_values:true` returns 40+ params on complex materials (Physical, Arnold). Prefer `slot_scope:"map"` (default) unless you need every param.
 - `assign_controller` and `set_controller_props` `params` dict values must work as both strings and numbers — the native handler coerces automatically. Small models may send `{"seed": 42}` (number) or `{"seed": "42"}` (string); both are valid.
 - `list_wireable_params` returns paths with `[#Parameters]` grouping level (e.g. `[#Object (Box)][#Parameters][#height]`). The native `NormalizeSubAnimPath` strips this automatically when passed to `wire_params`/`assign_controller`/`unwire_params`.
 - `get_wired_params` returns paths with `[#name]` format. These paths can be passed directly to `unwire_params` — `NormalizeSubAnimPath` handles both `[name]` and `[#name]` formats.

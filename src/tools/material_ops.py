@@ -691,10 +691,9 @@ def get_material_slots(
     properties into map/color/numeric/bool slots directly from 3ds Max.
     Use this when an agent needs practical slot names before writing values.
 
-    IMPORTANT: Prefer slot_scope="map" (default) or "summary" over "all".
+    Prefer slot_scope="map" (default) or "summary" over "all".
     Using "all" with include_values=True on complex materials (Physical,
-    Arnold) returns 40+ params and is heavy. Never call this in parallel
-    with other material tools — serialize material operations.
+    Arnold) returns 40+ params.
 
     Args:
         name: Object name whose material should be inspected.

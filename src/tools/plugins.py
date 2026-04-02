@@ -43,8 +43,6 @@ PLUGIN_OVERLAYS: dict[str, dict[str, Any]] = {
             "get_tyflow_particles",
             "reset_tyflow_simulation",
             "create_tyflow_preset",
-            "create_tyflow_basic_verified",
-            "create_tyflow_scatter_from_objects_verified",
         ],
         "recipes": [
             "For existing flows, start with get_tyflow_info (enable include_flow_properties/include_event_properties/include_operator_properties as needed), then mutate.",
@@ -457,11 +455,11 @@ def _recommended_tools(category: str) -> list[str]:
         "inspect_properties",
     ]
     if category == "modifier":
-        tools.extend(["add_modifier_verified", "set_modifier_state_verified"])
+        tools.extend(["add_modifier", "set_modifier_state"])
     elif category in {"geometry", "helper", "camera", "light"}:
-        tools.extend(["create_object_verified", "transform_object_verified", "set_object_property_verified"])
+        tools.extend(["create_object", "transform_object", "set_object_property"])
     elif category in {"material", "texturemap"}:
-        tools.extend(["assign_material_verified", "set_material_verified", "get_material_slots"])
+        tools.extend(["assign_material", "set_material_properties", "get_material_slots"])
     else:
         tools.append("execute_maxscript")
     return tools
@@ -974,11 +972,11 @@ def inspect_plugin_constructor(class_name: str) -> str:
         post_create.append("Generic reflection cannot guarantee a safe constructor path for this class.")
 
     if category == "modifier":
-        recommended = ["add_modifier_verified", "add_modifier", "inspect_modifier_properties"]
+        recommended = ["add_modifier", "inspect_modifier_properties"]
     elif category in {"material", "texturemap"}:
-        recommended = ["assign_material_verified", "set_material_verified", "get_material_slots"]
+        recommended = ["assign_material", "set_material_properties", "get_material_slots"]
     else:
-        recommended = ["create_object_verified", "set_object_property_verified", "inspect_object"]
+        recommended = ["create_object", "set_object_property", "inspect_object"]
 
     return json.dumps({
         "class": class_label,
