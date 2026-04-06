@@ -17,7 +17,7 @@ message(STATUS "Building for 3ds Max ${MAX_VERSION}")
 #   2024/2025/2026 → Visual Studio 2022 (v143), C++17
 #   2027+          → Visual Studio 2026 (v144), C++20
 if(MAX_VERSION GREATER_EQUAL 2027)
-    message(STATUS "Max 2027+ requires Visual Studio 2026 (v144 toolset) and C++20")
+    message(STATUS "Max 2027+ SDK — C++20 enabled (VS 2022 works, VS 2026 recommended by Autodesk)")
 endif()
 
 # ── Max SDK ──────────────────────────────────────────────────────
