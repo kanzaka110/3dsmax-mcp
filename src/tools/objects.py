@@ -2,6 +2,7 @@ import json as _json
 
 from ..server import mcp, client
 from ..coerce import StrList
+from ..safety import wrap_with_safety
 from src.helpers.maxscript import safe_string
 
 
@@ -112,7 +113,7 @@ def delete_objects(names: StrList) -> str:
         try:
             params = _json.dumps({"names": names})
             response = client.send_command(params, cmd_type="native:delete_objects")
-            return response.get("result", "")
+            return wrap_with_safety("delete_objects", response.get("result", ""))
         except RuntimeError:
             pass
 
@@ -139,4 +140,4 @@ def delete_objects(names: StrList) -> str:
         result
     )"""
     response = client.send_command(maxscript)
-    return response.get("result", "")
+    return wrap_with_safety("delete_objects", response.get("result", ""))

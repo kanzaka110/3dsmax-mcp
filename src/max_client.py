@@ -7,6 +7,8 @@ import time
 from typing import Any, Optional
 from uuid import uuid4
 
+from .lifecycle import ConnectionState, LifecycleManager
+
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 DEFAULT_TIMEOUT = 120.0
@@ -85,6 +87,7 @@ class MaxClient:
         self.pipe_name = pipe_name
         self._pipe_handle: Optional[int] = None
         self._pipe_lock = threading.Lock()
+        self.lifecycle = LifecycleManager()
 
     @property
     def native_available(self) -> bool:
@@ -197,17 +200,35 @@ class MaxClient:
             "protocolVersion": 2,
         }, ensure_ascii=True)
 
-        if self.transport == "pipe":
-            response_data = self._send_via_pipe(request, effective_timeout)
-        elif self.transport == "tcp":
-            response_data = self._send_via_tcp(request, effective_timeout)
-        else:
-            try:
-                response_data = self._send_via_pipe(request, effective_timeout)
-            except (ConnectionError, TimeoutError):
-                response_data = self._send_via_tcp(request, effective_timeout)
+        lc = self.lifecycle
+        if lc.state == ConnectionState.DISCONNECTED:
+            lc.transition_to(ConnectionState.CONNECTING, detail=f"cmd_type={cmd_type}")
 
-        return self._parse_response(response_data, request_id, started_at)
+        try:
+            if self.transport == "pipe":
+                response_data = self._send_via_pipe(request, effective_timeout)
+            elif self.transport == "tcp":
+                response_data = self._send_via_tcp(request, effective_timeout)
+            else:
+                try:
+                    response_data = self._send_via_pipe(request, effective_timeout)
+                except (ConnectionError, TimeoutError):
+                    response_data = self._send_via_tcp(request, effective_timeout)
+        except (ConnectionError, TimeoutError) as exc:
+            if lc.state != ConnectionState.ERROR:
+                lc.transition_to(ConnectionState.ERROR, detail=str(exc))
+            raise
+
+        if lc.state == ConnectionState.CONNECTING:
+            lc.transition_to(ConnectionState.HANDSHAKE, detail="data received")
+
+        result = self._parse_response(response_data, request_id, started_at)
+
+        if lc.state in (ConnectionState.HANDSHAKE, ConnectionState.ERROR):
+            transport = "pipe" if self.transport != "tcp" and self._pipe_handle else "tcp"
+            lc.transition_to(ConnectionState.READY, transport=transport, detail="response ok")
+
+        return result
 
     # ── Named Pipe transport ─────────────────────────────────────
     def _send_via_pipe(self, request: str, timeout: float) -> bytes:

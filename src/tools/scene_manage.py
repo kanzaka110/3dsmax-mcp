@@ -1,5 +1,6 @@
 import json as _json
 from ..server import mcp, client
+from ..safety import wrap_with_safety
 
 
 @mcp.tool()
@@ -21,7 +22,7 @@ def manage_scene(action: str) -> str:
     if client.native_available:
         payload = _json.dumps({"action": action})
         response = client.send_command(payload, cmd_type="native:manage_scene")
-        return response.get("result", "")
+        return wrap_with_safety("manage_scene", response.get("result", ""), action=action)
 
     if action == "hold":
         maxscript = """(
@@ -71,4 +72,4 @@ def manage_scene(action: str) -> str:
         return f"Unknown action: {action}. Use hold, fetch, reset, save, or info."
 
     response = client.send_command(maxscript)
-    return response.get("result", "")
+    return wrap_with_safety("manage_scene", response.get("result", ""), action=action)

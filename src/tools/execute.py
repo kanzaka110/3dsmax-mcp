@@ -1,4 +1,5 @@
 from ..server import mcp, client
+from ..safety import wrap_with_safety
 
 
 @mcp.tool()
@@ -13,4 +14,4 @@ def execute_maxscript(code: str = "", command: str = "") -> str:
     if not script:
         return "Error: provide MAXScript code in the 'code' parameter"
     response = client.send_command(script, cmd_type="maxscript")
-    return response.get("result", "")
+    return wrap_with_safety("execute_maxscript", response.get("result", ""))
