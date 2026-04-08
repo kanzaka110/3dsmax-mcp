@@ -9,20 +9,14 @@ from ..server import mcp
 
 @mcp.tool()
 def get_session_context(
-    max_roots: int = 20,
-    max_selection: int = 20,
+    max_roots: int = 10,
+    max_selection: int = 5,
 ) -> str:
-    """Get compact live context for the current 3ds Max session.
-
-    This is the fastest "where am I?" tool for an AI client. It combines:
-    - bridge status
-    - host/plugin capabilities
-    - compact scene snapshot
-    - compact current selection snapshot
+    """Get compact live context: bridge status + capabilities + scene snapshot + selection.
 
     Args:
-        max_roots: Max top-level root names to include from the scene snapshot.
-        max_selection: Max selected objects to include from the selection snapshot.
+        max_roots: Max root names in scene snapshot (default 10).
+        max_selection: Max selected objects (default 5).
     """
     from .bridge import get_bridge_status
     from .capabilities import get_plugin_capabilities

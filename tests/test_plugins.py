@@ -4,15 +4,15 @@ from unittest.mock import patch
 
 from src.tools.plugins import (
     _build_manifest,
+    _discover_surface,
+    _get_manifest,
+    _inspect_class,
+    _inspect_instance,
+    _list_classes,
     _plugin_gotchas_markdown,
     _plugin_guide_markdown,
     _plugin_recipe_markdown,
     _parse_showclass_lines,
-    discover_plugin_surface,
-    get_plugin_manifest,
-    inspect_plugin_class,
-    inspect_plugin_instance,
-    list_plugin_classes,
     plugin_gotchas_resource,
     plugin_guide_resource,
     plugin_index_resource,
@@ -46,7 +46,7 @@ class PluginToolTests(unittest.TestCase):
 
     def test_list_plugin_classes_filters_by_plugin(self) -> None:
         with patch("src.tools.plugins._fetch_runtime_classes", return_value=RUNTIME_CLASSES):
-            result = json.loads(list_plugin_classes(plugin_name="tyflow", limit=1))
+            result = json.loads(_list_classes(plugin_name="tyflow", limit=1))
 
         self.assertEqual(result["count"], 1)
         self.assertEqual(result["classes"][0]["name"], "tyFlow")
@@ -58,7 +58,7 @@ class PluginToolTests(unittest.TestCase):
             patch("src.tools.plugins._get_scene_instance_counts", return_value={"tyFlow": 2, "tyMesher": 0}),
             patch("src.tools.plugins.get_plugin_capabilities", return_value='{"maxVersion":2026,"renderer":"Arnold","plugins":{"tyFlow":true}}'),
         ):
-            result = json.loads(discover_plugin_surface(plugin_name="tyflow"))
+            result = json.loads(_discover_surface(plugin_name="tyflow"))
 
         self.assertEqual(result["plugin"], "tyFlow")
         self.assertEqual(result["installed"], True)
@@ -74,7 +74,7 @@ class PluginToolTests(unittest.TestCase):
             patch("src.tools.plugins._get_scene_instance_counts", return_value={"tyFlow": 1, "tyMesher": 0}),
             patch("src.tools.plugins.get_plugin_capabilities", return_value='{"plugins":{"tyFlow":false}}'),
         ):
-            result = json.loads(discover_plugin_surface(plugin_name="tyflow"))
+            result = json.loads(_discover_surface(plugin_name="tyflow"))
 
         self.assertEqual(result["installed"], True)
         self.assertEqual(result["installation"]["status"], "runtime_only")
@@ -89,7 +89,7 @@ class PluginToolTests(unittest.TestCase):
                 "  .allowCustomWirecolor : boolean",
             ]),
         ):
-            result = json.loads(inspect_plugin_class("tyFlow"))
+            result = json.loads(_inspect_class("tyFlow"))
 
         self.assertEqual(result["class"], "tyFlow")
         self.assertEqual(result["category"], "geometry")
@@ -106,7 +106,7 @@ class PluginToolTests(unittest.TestCase):
                 "  .simResetMode : integer",
             ]),
         ):
-            result = json.loads(inspect_plugin_class("tyFlow", include_methods=False))
+            result = json.loads(_inspect_class("tyFlow", include_methods=False))
 
         self.assertEqual(result["methods"], [])
         self.assertEqual(result["methodReflectionSupported"], False)
@@ -122,7 +122,7 @@ class PluginToolTests(unittest.TestCase):
                 "  .spline : node",
             ]),
         ):
-            result = json.loads(inspect_plugin_class("RailClone_Pro"))
+            result = json.loads(_inspect_class("RailClone_Pro"))
 
         self.assertEqual(result["class"], "RailClone_Pro")
         self.assertEqual(result["properties"][0]["name"], "spline")
@@ -175,7 +175,7 @@ class PluginToolTests(unittest.TestCase):
 
     def test_get_plugin_manifest_returns_json(self) -> None:
         with patch("src.tools.plugins._build_manifest", return_value={"plugin": "tyFlow", "installed": True}):
-            result = json.loads(get_plugin_manifest("tyflow"))
+            result = json.loads(_get_manifest("tyflow"))
 
         self.assertEqual(result["plugin"], "tyFlow")
         self.assertEqual(result["installed"], True)
@@ -214,8 +214,8 @@ class PluginToolTests(unittest.TestCase):
 
     def test_plugin_resources_delegate_to_tooling(self) -> None:
         with (
-            patch("src.tools.plugins.discover_plugin_surface", return_value='{"plugins":[{"plugin":"tyFlow"}]}'),
-            patch("src.tools.plugins.get_plugin_manifest", return_value='{"plugin":"tyFlow","installed":true}'),
+            patch("src.tools.plugins._discover_surface", return_value='{"plugins":[{"plugin":"tyFlow"}]}'),
+            patch("src.tools.plugins._get_manifest", return_value='{"plugin":"tyFlow","installed":true}'),
             patch("src.tools.plugins._plugin_guide_markdown", return_value="# tyFlow"),
             patch("src.tools.plugins._plugin_recipe_markdown", return_value="# tyFlow Recipes"),
             patch("src.tools.plugins._plugin_gotchas_markdown", return_value="# tyFlow Gotchas"),
@@ -238,7 +238,7 @@ class PluginToolTests(unittest.TestCase):
             patch("src.tools.inspect.inspect_properties", return_value='{"class":"tyFlow","propertyCount":2,"properties":[{"name":"simResetMode","value":"0","declaredType":"integer","runtimeType":"Integer"},{"name":"allowCustomWirecolor","value":"true","declaredType":"boolean","runtimeType":"BooleanClass"}]}'),
             patch("src.tools.plugins._build_manifest", return_value={"plugin": "tyFlow", "installed": True}),
         ):
-            result = json.loads(inspect_plugin_instance("Flow001"))
+            result = json.loads(_inspect_instance("Flow001"))
 
         self.assertEqual(result["plugin"], "tyFlow")
         self.assertEqual(result["manifest"]["plugin"], "tyFlow")
@@ -253,7 +253,7 @@ class PluginToolTests(unittest.TestCase):
             patch("src.tools.inspect.inspect_properties", return_value='{"class":"tyFlow","propertyCount":1,"properties":[{"name":"simResetMode","value":"0","declaredType":"integer","runtimeType":"Integer"}]}'),
             patch("src.tools.plugins._build_manifest", side_effect=lambda plugin: {"plugin": plugin}),
         ):
-            result = json.loads(inspect_plugin_instance("Hybrid001"))
+            result = json.loads(_inspect_instance("Hybrid001"))
 
         self.assertEqual(result["primaryPlugin"], "tyFlow")
         self.assertIn("Detected from the object's runtime class", result["primaryPluginReason"])

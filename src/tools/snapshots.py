@@ -7,16 +7,11 @@ from ..server import mcp, client
 _previous_snapshot: dict | None = None
 
 
-@mcp.tool()
-def get_scene_snapshot(max_roots: int = 50) -> str:
-    """Compact scene overview in one call: object counts by class, materials summary,
-    modifier summary, layers, hidden/frozen counts, and top-level root names.
+# ── Private helpers ─────────────────────────────────────────────────
 
-    Use this as the first inspection call to cheaply understand a scene.
 
-    Args:
-        max_roots: Max root object names to include (default 50).
-    """
+def _get_scene_snapshot(max_roots: int = 50) -> str:
+    """Compact scene overview: class counts, materials, modifiers, layers, roots."""
     if client.native_available:
         try:
             params = {}
@@ -125,16 +120,8 @@ def get_scene_snapshot(max_roots: int = 50) -> str:
     return response.get("result", "{}")
 
 
-@mcp.tool()
-def get_selection_snapshot(max_items: int = 50) -> str:
-    """Compact info for each selected object: name, class, parent, material,
-    modifier list, position, and bounding box.
-
-    Use after get_scene_snapshot to inspect what's selected without a deep inspection call.
-
-    Args:
-        max_items: Max objects to return (default 50).
-    """
+def _get_selection_snapshot(max_items: int = 50) -> str:
+    """Compact info for each selected object."""
     if client.native_available:
         try:
             params = {}
@@ -247,16 +234,8 @@ def _diff_objects(prev: dict, curr: dict) -> dict:
     return changes
 
 
-@mcp.tool()
-def get_scene_delta(capture: bool = False) -> str:
-    """Track what changed in the scene since the last snapshot.
-
-    First call (or capture=True): captures baseline, returns object count.
-    Subsequent calls: returns added/removed/modified objects since baseline, then updates it.
-
-    Args:
-        capture: Force a fresh baseline capture without returning a delta.
-    """
+def _get_scene_delta(capture: bool = False) -> str:
+    """Track scene changes since last snapshot."""
     if client.native_available:
         try:
             params = {}
@@ -302,3 +281,30 @@ def get_scene_delta(capture: bool = False) -> str:
             "total": len(current),
         },
     })
+
+
+# ── Unified tool ────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def manage_snapshots(
+    action: str,
+    max_roots: int = 50,
+    max_items: int = 50,
+    capture: bool = False,
+) -> str:
+    """Scene snapshots for quick understanding. Actions: scene, selection, delta.
+
+    Args:
+        action: "scene" | "selection" | "delta".
+        max_roots: Max root names for scene snapshot (default 50).
+        max_items: Max objects for selection snapshot (default 50).
+        capture: Force fresh baseline for delta (no diff returned).
+    """
+    if action == "scene":
+        return _get_scene_snapshot(max_roots)
+    if action == "selection":
+        return _get_selection_snapshot(max_items)
+    if action == "delta":
+        return _get_scene_delta(capture)
+    return f"Unknown action: {action}. Use: scene, selection, delta"

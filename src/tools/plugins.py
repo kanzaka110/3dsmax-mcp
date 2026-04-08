@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import Any, Optional
 
 from src.helpers.maxscript import safe_string
 
@@ -807,15 +807,16 @@ def _build_manifest(plugin_name: str) -> dict[str, Any]:
     }
 
 
-@mcp.tool()
-def list_plugin_classes(
+# ── Private helpers for each action ──────────────────────────────
+
+
+def _list_classes(
     plugin_name: str = "",
     superclass: str = "",
     limit: int = 200,
 ) -> str:
     """List classes likely tied to a plugin or superclass family."""
     if client.native_available and not plugin_name:
-        # Pure SDK path for superclass-only enumeration
         payload = json.dumps({"superclass": superclass or "all"})
         response = client.send_command(payload, cmd_type="native:list_plugin_classes")
         return response.get("result", "")
@@ -834,8 +835,7 @@ def list_plugin_classes(
     })
 
 
-@mcp.tool()
-def discover_plugin_surface(
+def _discover_surface(
     plugin_name: str = "",
     class_limit: int = 100,
 ) -> str:
@@ -905,8 +905,7 @@ def discover_plugin_surface(
     })
 
 
-@mcp.tool()
-def inspect_plugin_class(
+def _inspect_class(
     class_name: str,
     include_methods: bool = True,
     include_properties: bool = True,
@@ -946,10 +945,9 @@ def inspect_plugin_class(
     })
 
 
-@mcp.tool()
-def inspect_plugin_constructor(class_name: str) -> str:
+def _inspect_constructor(class_name: str) -> str:
     """Return likely creation notes for a plugin class."""
-    inspected = _load_json(inspect_plugin_class(class_name, include_methods=False, include_properties=False), {})
+    inspected = _load_json(_inspect_class(class_name, include_methods=False, include_properties=False), {})
     if "error" in inspected:
         return json.dumps(inspected)
 
@@ -1053,8 +1051,7 @@ def _summarize_property_dump(property_dump: dict[str, Any], plugin_name: str, li
     }
 
 
-@mcp.tool()
-def inspect_plugin_instance(name: str, detail: str = "normal") -> str:
+def _inspect_instance(name: str, detail: str = "normal") -> str:
     """Inspect a live scene instance with plugin-aware summarization."""
     from .inspect import inspect_object, inspect_properties
 
@@ -1113,33 +1110,183 @@ def inspect_plugin_instance(name: str, detail: str = "normal") -> str:
     return json.dumps(result)
 
 
-@mcp.tool()
-def get_plugin_manifest(plugin_name: str) -> str:
+def _get_manifest(plugin_name: str) -> str:
     """Return a structured plugin manifest derived from live runtime data plus curated hints."""
     return json.dumps(_build_manifest(plugin_name))
 
 
-@mcp.tool()
-def refresh_plugin_manifest(plugin_name: str) -> str:
-    """Refresh and return the plugin manifest.
-
-    This currently rebuilds the manifest from live runtime data on every call.
-    """
+def _refresh_manifest(plugin_name: str) -> str:
+    """Rebuild and return the plugin manifest from live runtime data."""
     manifest = _build_manifest(plugin_name)
     manifest["refreshed"] = True
     return json.dumps(manifest)
 
 
+def _discover_classes(
+    superclass: str = "",
+    pattern: str = "",
+    limit: int = 100,
+) -> str:
+    """Enumerate all registered classes via native C++ SDK."""
+    payload = {}
+    if superclass:
+        payload["superclass"] = superclass
+    if pattern:
+        payload["pattern"] = pattern
+    if limit != 500:
+        payload["limit"] = limit
+    response = client.send_command(
+        json.dumps(payload) if payload else "",
+        cmd_type="native:discover_classes",
+    )
+    return response.get("result", "{}")
+
+
+def _introspect_class(class_name: str) -> str:
+    """Deep C++ SDK class introspection with _blocked_osl check."""
+    blocked = {"oslmap", "osl_map", "osl"}
+    if class_name.strip().lower() in blocked:
+        return json.dumps({"error": "OSLMap has dynamic params that produce unbounded output. Use introspect_osl instead.", "redirect": "introspect_osl"})
+    payload = json.dumps({"class_name": class_name})
+    response = client.send_command(payload, cmd_type="native:introspect_class")
+    return response.get("result", "{}")
+
+
+def _introspect_instance(
+    name: str,
+    include_subanims: bool = False,
+    subanim_depth: int = 2,
+) -> str:
+    """Deep C++ SDK introspection of a live scene object."""
+    payload = {"name": name}
+    if include_subanims:
+        payload["include_subanims"] = True
+    if subanim_depth != 3:
+        payload["subanim_depth"] = subanim_depth
+    response = client.send_command(
+        json.dumps(payload),
+        cmd_type="native:introspect_instance",
+    )
+    return response.get("result", "{}")
+
+
+# ── Unified tool ─────────────────────────────────────────────────
+
+
+@mcp.tool()
+def manage_plugins(
+    action: str,
+    plugin_name: Optional[str] = None,
+    class_name: Optional[str] = None,
+    name: Optional[str] = None,
+    superclass: Optional[str] = None,
+    pattern: Optional[str] = None,
+    detail: Optional[str] = None,
+    include_methods: Optional[bool] = None,
+    include_properties: Optional[bool] = None,
+    include_subanims: Optional[bool] = None,
+    subanim_depth: Optional[int] = None,
+    limit: Optional[int] = None,
+    class_limit: Optional[int] = None,
+) -> str:
+    """Plugin discovery, inspection, and manifest operations.
+
+    Actions: discover_surface, manifest, list_classes, refresh_manifest,
+    inspect_class, inspect_constructor, inspect_instance, discover_classes,
+    introspect_class, introspect_instance.
+    """
+    if action == "discover_surface":
+        return _discover_surface(
+            plugin_name=plugin_name or "",
+            class_limit=class_limit if class_limit is not None else 100,
+        )
+
+    if action == "manifest":
+        if not plugin_name:
+            return json.dumps({"error": "plugin_name is required for action 'manifest'"})
+        return _get_manifest(plugin_name)
+
+    if action == "list_classes":
+        return _list_classes(
+            plugin_name=plugin_name or "",
+            superclass=superclass or "",
+            limit=limit if limit is not None else 200,
+        )
+
+    if action == "refresh_manifest":
+        if not plugin_name:
+            return json.dumps({"error": "plugin_name is required for action 'refresh_manifest'"})
+        return _refresh_manifest(plugin_name)
+
+    if action == "inspect_class":
+        effective_class = class_name or plugin_name
+        if not effective_class:
+            return json.dumps({"error": "class_name is required for action 'inspect_class'"})
+        return _inspect_class(
+            class_name=effective_class,
+            include_methods=include_methods if include_methods is not None else True,
+            include_properties=include_properties if include_properties is not None else True,
+        )
+
+    if action == "inspect_constructor":
+        effective_class = class_name or plugin_name
+        if not effective_class:
+            return json.dumps({"error": "class_name is required for action 'inspect_constructor'"})
+        return _inspect_constructor(effective_class)
+
+    if action == "inspect_instance":
+        effective_name = name or plugin_name
+        if not effective_name:
+            return json.dumps({"error": "name is required for action 'inspect_instance'"})
+        return _inspect_instance(
+            name=effective_name,
+            detail=detail or "normal",
+        )
+
+    if action == "discover_classes":
+        return _discover_classes(
+            superclass=superclass or "",
+            pattern=pattern or "",
+            limit=limit if limit is not None else 100,
+        )
+
+    if action == "introspect_class":
+        effective_class = class_name or plugin_name
+        if not effective_class:
+            return json.dumps({"error": "class_name is required for action 'introspect_class'"})
+        return _introspect_class(effective_class)
+
+    if action == "introspect_instance":
+        effective_name = name or plugin_name
+        if not effective_name:
+            return json.dumps({"error": "name is required for action 'introspect_instance'"})
+        return _introspect_instance(
+            name=effective_name,
+            include_subanims=include_subanims if include_subanims is not None else False,
+            subanim_depth=subanim_depth if subanim_depth is not None else 2,
+        )
+
+    valid_actions = [
+        "discover_surface", "manifest", "list_classes", "refresh_manifest",
+        "inspect_class", "inspect_constructor", "inspect_instance",
+        "discover_classes", "introspect_class", "introspect_instance",
+    ]
+    return json.dumps({"error": f"Unknown action: {action}", "valid_actions": valid_actions})
+
+
+# ── MCP Resources (unchanged) ───────────────────────────────────
+
+
 @mcp.resource(PLUGIN_INDEX_RESOURCE_URI, name="Plugin Index", mime_type="application/json")
 def plugin_index_resource() -> str:
     """Installed plugin family summary as an MCP resource."""
-    return discover_plugin_surface()
+    return _discover_surface()
 
 
 @mcp.resource(PLUGIN_MANIFEST_RESOURCE_URI, name="Plugin Manifest", mime_type="application/json")
 def plugin_manifest_resource(plugin_name: str) -> str:
     """Per-plugin manifest as an MCP template resource."""
-    return get_plugin_manifest(plugin_name)
+    return _get_manifest(plugin_name)
 
 
 @mcp.resource(PLUGIN_GUIDE_RESOURCE_URI, name="Plugin Guide", mime_type="text/markdown")
@@ -1158,106 +1305,6 @@ def plugin_recipes_resource(plugin_name: str) -> str:
 def plugin_gotchas_resource(plugin_name: str) -> str:
     """Per-plugin gotchas as an MCP template resource."""
     return _plugin_gotchas_markdown(plugin_name)
-
-
-# ── Deep C++ SDK introspection tools ─────────────────────────────
-
-@mcp.tool()
-def discover_plugin_classes(
-    superclass: str = "",
-    pattern: str = "",
-    limit: int = 500,
-) -> str:
-    """Enumerate ALL registered classes in 3ds Max's DLL directory via native C++ SDK.
-
-    Scans every loaded plugin DLL and returns class metadata. Much faster and
-    more complete than MAXScript's showClass — covers classes that MAXScript
-    cannot see.
-
-    Args:
-        superclass: Filter by superclass: "geometry", "modifier", "material",
-                    "texturemap", "helper", "light", "camera", "shape", "spacewarp".
-                    Empty = all superclasses.
-        pattern: Wildcard name filter (e.g. "Forest*", "*Vray*"). Empty = all.
-        limit: Max classes to return (default 500).
-    """
-    payload = {}
-    if superclass:
-        payload["superclass"] = superclass
-    if pattern:
-        payload["pattern"] = pattern
-    if limit != 500:
-        payload["limit"] = limit
-    response = client.send_command(
-        json.dumps(payload) if payload else "",
-        cmd_type="native:discover_classes",
-    )
-    return response.get("result", "{}")
-
-
-@mcp.tool()
-def introspect_class(
-    class_name: str,
-) -> str:
-    """Deep C++ SDK introspection of a class — returns the COMPLETE API surface.
-
-    Enumerates all ParamBlock2 parameters (names, types, defaults, ranges,
-    animatable flags) and all FPInterface functions and properties directly
-    from the class descriptor. Works on ANY class — built-in or third-party plugin.
-
-    This goes deeper than inspect_plugin_class (MAXScript reflection). Use it
-    when you need parameter defaults, ranges, function signatures, or when
-    MAXScript reflection is incomplete.
-
-    Requires the native C++ bridge plugin.
-
-    For OSLMap / OSL classes, use introspect_osl instead — OSLMap has dynamic
-    params that produce unbounded output through the C++ path.
-
-    Args:
-        class_name: The class to introspect (e.g. "TurboSmooth", "Forest_Pro",
-                    "PhysicalMaterial", "tyFlow").
-    """
-    blocked = {"oslmap", "osl_map", "osl"}
-    if class_name.strip().lower() in blocked:
-        return json.dumps({"error": f"OSLMap has dynamic params that produce unbounded output. Use introspect_osl instead.", "redirect": "introspect_osl"})
-    payload = json.dumps({"class_name": class_name})
-    response = client.send_command(payload, cmd_type="native:introspect_class")
-    return response.get("result", "{}")
-
-
-@mcp.tool()
-def introspect_instance(
-    name: str,
-    include_subanims: bool = False,
-    subanim_depth: int = 3,
-) -> str:
-    """Deep C++ SDK introspection of a live scene object with actual values.
-
-    Reads all ParamBlock2 parameters with their CURRENT values, all FPInterface
-    methods and properties, the modifier stack with per-modifier params, material
-    params, and optionally the full SubAnim tree.
-
-    Goes deeper than inspect_plugin_instance. Use when you need to see parameter
-    values that MAXScript's getPropNames/showProperties cannot reach.
-
-    Requires the native C++ bridge plugin.
-
-    Args:
-        name: The scene object name to inspect.
-        include_subanims: Include the SubAnim hierarchy tree (can be large).
-        subanim_depth: Max depth for SubAnim tree traversal (default 3).
-    """
-    payload = {"name": name}
-    if include_subanims:
-        payload["include_subanims"] = True
-    if subanim_depth != 3:
-        payload["subanim_depth"] = subanim_depth
-    response = client.send_command(
-        json.dumps(payload),
-        cmd_type="native:introspect_instance",
-    )
-    return response.get("result", "{}")
 
 
 # Imported lazily to avoid circular imports at module load time.

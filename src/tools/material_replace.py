@@ -12,26 +12,15 @@ from ..coerce import DictList
 from src.helpers.maxscript import safe_string
 
 
-@mcp.tool()
-def replace_material(
+# ── Private helpers ─────────────────────────────────────────────────
+
+
+def _replace_material(
     source_material: str,
     target_material: str,
     preview: bool = False,
 ) -> str:
-    """Replace one material with another across all objects that use it.
-
-    Finds every object whose material name matches *target_material* and
-    reassigns it to the material named *source_material*.  The source
-    material must already exist on at least one object in the scene.
-
-    Args:
-        source_material: Name of the material to apply (must exist in scene).
-        target_material: Name of the material to replace / remove.
-        preview: If True, only list affected objects without making changes.
-
-    Returns:
-        JSON with affected object names, count, and status.
-    """
+    """Replace one material with another across all objects."""
     if client.native_available:
         payload = _json.dumps({"source_material": source_material, "target_material": target_material, "preview": preview})
         response = client.send_command(payload, cmd_type="native:replace_material")
@@ -108,25 +97,11 @@ def replace_material(
     return response.get("result", "{}")
 
 
-@mcp.tool()
-def batch_replace_materials(
+def _batch_replace_materials(
     replacements: DictList,
     preview: bool = False,
 ) -> str:
-    """Replace multiple materials in a single operation.
-
-    Each entry maps a source material (to keep) to a target material
-    (to replace).  Useful for unifying several split assignments at once.
-
-    Args:
-        replacements: List of dicts, each with:
-            - "source": name of the material to apply
-            - "target": name of the material to replace
-        preview: If True, only list affected objects without making changes.
-
-    Returns:
-        JSON with per-replacement results and an overall summary.
-    """
+    """Replace multiple materials in a single operation."""
     if client.native_available:
         payload = _json.dumps({"replacements": list(replacements), "preview": preview})
         response = client.send_command(payload, cmd_type="native:batch_replace_materials")
@@ -139,7 +114,7 @@ def batch_replace_materials(
         if not src or not tgt:
             results.append({"source": src, "target": tgt, "status": "skipped", "error": "missing source or target"})
             continue
-        raw = replace_material(source_material=src, target_material=tgt, preview=preview)
+        raw = _replace_material(source_material=src, target_material=tgt, preview=preview)
         try:
             results.append(_json.loads(raw))
         except _json.JSONDecodeError:
@@ -151,3 +126,30 @@ def batch_replace_materials(
         "total_replaced": total_replaced,
         "preview": preview,
     })
+
+
+# ── Unified tool ────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def manage_material_replace(
+    action: str,
+    source_material: str = "",
+    target_material: str = "",
+    preview: bool = False,
+    replacements: DictList | None = None,
+) -> str:
+    """Replace materials across objects. Actions: replace, batch_replace.
+
+    Args:
+        action: "replace" | "batch_replace".
+        source_material: Material to apply (for replace).
+        target_material: Material to replace (for replace).
+        preview: Only list affected objects without changes.
+        replacements: List of {"source": str, "target": str} (for batch_replace).
+    """
+    if action == "replace":
+        return _replace_material(source_material, target_material, preview)
+    if action == "batch_replace":
+        return _batch_replace_materials(replacements or [], preview)
+    return f"Unknown action: {action}. Use: replace, batch_replace"

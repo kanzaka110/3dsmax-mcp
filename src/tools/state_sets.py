@@ -9,23 +9,11 @@ import json
 from ..server import mcp, client
 
 
-@mcp.tool()
-def get_state_sets() -> str:
-    """Get all State Sets with their camera assignments and frame ranges.
+# ── Private helpers ─────────────────────────────────────────────────
 
-    Reads the State Sets .NET API to extract:
-    - State set names
-    - Assigned camera (ActiveViewportCamera) per state set
-    - Render range (start/end frames) per state set
-    - Whether camera animation is locked to range
 
-    Use this to understand camera sequencing setups — which cameras are
-    active during which frame ranges. The data can drive USD camera
-    switch exports or Unreal Sequencer Camera Cut Track generation.
-
-    Returns:
-        JSON with all state sets, their cameras, and frame ranges.
-    """
+def _get_state_sets() -> str:
+    """Get all State Sets with camera assignments and frame ranges."""
     if client.native_available:
         response = client.send_command("{}", cmd_type="native:get_state_sets")
         return response.get("result", "")
@@ -120,21 +108,8 @@ def get_state_sets() -> str:
     return response.get("result", "")
 
 
-@mcp.tool()
-def get_camera_sequence() -> str:
-    """Get only the camera-assigned State Sets, sorted by start frame.
-
-    Filters state sets to only those with an ActiveViewportCamera assigned,
-    then sorts by render range start frame. This gives you the camera
-    switch timeline — which camera is active during which frame range.
-
-    Use this for building camera cut tracks (Unreal Sequencer) or
-    USD camera switch metadata.
-
-    Returns:
-        JSON array of camera switches sorted by start frame, with
-        camera name and frame range for each.
-    """
+def _get_camera_sequence() -> str:
+    """Get camera-assigned State Sets sorted by start frame."""
     if client.native_available:
         response = client.send_command("{}", cmd_type="native:get_camera_sequence")
         return response.get("result", "")
@@ -212,3 +187,20 @@ def get_camera_sequence() -> str:
     )"""
     response = client.send_command(maxscript)
     return response.get("result", "")
+
+
+# ── Unified tool ────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def manage_state_sets(action: str) -> str:
+    """State Sets and Camera Sequencer. Actions: list, camera_sequence.
+
+    Args:
+        action: "list" (all state sets) | "camera_sequence" (sorted camera timeline).
+    """
+    if action == "list":
+        return _get_state_sets()
+    if action == "camera_sequence":
+        return _get_camera_sequence()
+    return f"Unknown action: {action}. Use: list, camera_sequence"

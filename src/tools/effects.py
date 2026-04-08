@@ -9,19 +9,11 @@ import json
 from ..server import mcp, client
 
 
-@mcp.tool()
-def get_effects() -> str:
-    """List all atmospheric effects and render effects in the scene.
+# ── Private helpers (original tool bodies) ──────────────────────────
 
-    Use this when asked about fog, volume effects, lens effects, or any
-    scene-level post-processing. These are NOT per-object — they're global
-    scene effects. Atmospherics include Fog, Volume Fog, Volume Light,
-    Fire Effect, etc. Render effects include Lens Effects, Blur, etc.
 
-    Returns:
-        JSON with atmospheric and render effect lists, including class,
-        active state, and which scene objects reference each effect.
-    """
+def _list_effects() -> str:
+    """List all atmospheric and render effects in the scene."""
     if client.native_available:
         response = client.send_command("{}", cmd_type="native:get_effects")
         return response.get("result", '{"atmospherics":[],"renderEffects":[]}')
@@ -61,21 +53,12 @@ def get_effects() -> str:
     return response.get("result", '{"atmospherics":[],"renderEffects":[]}')
 
 
-@mcp.tool()
-def toggle_effect(
+def _toggle_effect(
     index: int,
     effect_type: str = "atmospheric",
     active: bool = True,
 ) -> str:
-    """Enable or disable an atmospheric or render effect by index.
-
-    Args:
-        index: 1-based index of the effect (from get_effects).
-        effect_type: "atmospheric" or "render_effect".
-        active: True to enable, False to disable.
-
-    Returns confirmation.
-    """
+    """Enable or disable an effect by index."""
     if client.native_available:
         payload = json.dumps({"index": index, "effect_type": effect_type, "active": active})
         response = client.send_command(payload, cmd_type="native:toggle_effect")
@@ -107,19 +90,11 @@ def toggle_effect(
     return response.get("result", "")
 
 
-@mcp.tool()
-def delete_effect(
+def _delete_effect(
     index: int,
     effect_type: str = "atmospheric",
 ) -> str:
-    """Delete an atmospheric or render effect by index.
-
-    Args:
-        index: 1-based index of the effect (from get_effects).
-        effect_type: "atmospheric" or "render_effect".
-
-    Returns confirmation.
-    """
+    """Delete an effect by index."""
     if client.native_available:
         payload = json.dumps({"index": index, "effect_type": effect_type})
         response = client.send_command(payload, cmd_type="native:delete_effect")
@@ -149,3 +124,30 @@ def delete_effect(
         )"""
     response = client.send_command(maxscript)
     return response.get("result", "")
+
+
+# ── Unified tool ────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def manage_effects(
+    action: str,
+    index: int = 0,
+    effect_type: str = "atmospheric",
+    active: bool = True,
+) -> str:
+    """Manage atmospheric and render effects. Actions: list, toggle, delete.
+
+    Args:
+        action: "list" | "toggle" | "delete".
+        index: 1-based effect index (for toggle/delete).
+        effect_type: "atmospheric" or "render_effect".
+        active: Enable/disable state (for toggle).
+    """
+    if action == "list":
+        return _list_effects()
+    if action == "toggle":
+        return _toggle_effect(index, effect_type, active)
+    if action == "delete":
+        return _delete_effect(index, effect_type)
+    return f"Unknown action: {action}. Use: list, toggle, delete"

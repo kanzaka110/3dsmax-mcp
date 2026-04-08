@@ -10,11 +10,9 @@ def add_modifier(name: str, modifier: str, params: str = "") -> str:
     """Add a modifier to an object.
 
     Args:
-        name: The object name (e.g. "Box001")
-        modifier: Modifier class name (e.g. "TurboSmooth", "Bend", "Shell", "Edit_Poly")
-        params: Optional MAXScript parameters (e.g. "iterations:2")
-
-    Returns confirmation or error.
+        name: Object name.
+        modifier: Modifier class (e.g. "TurboSmooth", "Bend").
+        params: Optional MAXScript params (e.g. "iterations:2").
     """
     if client.native_available:
         try:
@@ -43,16 +41,11 @@ def add_modifier(name: str, modifier: str, params: str = "") -> str:
     return response.get("result", "")
 
 
-@mcp.tool()
-def remove_modifier(name: str, modifier: str) -> str:
-    """Remove a modifier from an object by name.
+# ── Private helpers (merged tools) ──────────────────────────────────
 
-    Args:
-        name: The object name (e.g. "Box001")
-        modifier: The modifier name to remove (e.g. "TurboSmooth 1", "Bend 1")
 
-    Returns confirmation or error.
-    """
+def _remove_modifier(name: str, modifier: str) -> str:
+    """Remove a modifier from an object by name."""
     if client.native_available:
         try:
             payload = _json.dumps({"name": name, "modifier": modifier})
@@ -86,8 +79,7 @@ def remove_modifier(name: str, modifier: str) -> str:
     return response.get("result", "")
 
 
-@mcp.tool()
-def set_modifier_state(
+def _set_modifier_state(
     name: str,
     modifier_name: str = "",
     modifier_index: int = 0,
@@ -95,27 +87,7 @@ def set_modifier_state(
     enabled_in_views: Optional[bool] = None,
     enabled_in_renders: Optional[bool] = None,
 ) -> str:
-    """Set the enable state of a modifier with viewport/render granularity.
-
-    Use this instead of execute_maxscript when you need to toggle modifiers
-    on/off — e.g. disable TurboSmooth in viewport for performance but keep
-    it for render, or temporarily disable a Bend to see the base shape.
-
-    3ds Max modifiers have three independent enable flags:
-    - enabled: master on/off
-    - enabledInViews: active in viewport only
-    - enabledInRenders: active in renders only
-
-    Args:
-        name: The object name.
-        modifier_name: Modifier name to find (e.g. "TurboSmooth 1"). Ignored if modifier_index is set.
-        modifier_index: 1-based modifier stack index. Takes priority over modifier_name.
-        enabled: Set master enabled state.
-        enabled_in_views: Set viewport-only enabled state.
-        enabled_in_renders: Set render-only enabled state.
-
-    Returns confirmation.
-    """
+    """Set modifier enable state (master, viewport-only, render-only)."""
     if client.native_available:
         try:
             payload = {"name": name, "modifier_name": modifier_name, "modifier_index": modifier_index}
@@ -174,24 +146,11 @@ def set_modifier_state(
     return response.get("result", "")
 
 
-@mcp.tool()
-def collapse_modifier_stack(
+def _collapse_modifier_stack(
     name: str,
     to_index: int = 0,
 ) -> str:
-    """Collapse the modifier stack on an object.
-
-    Use this to bake modifiers into the mesh — e.g. before boolean operations,
-    exporting, or when the parametric stack is no longer needed. Converts to
-    Editable Mesh/Poly.
-
-    Args:
-        name: The object name.
-        to_index: If 0, collapses the entire stack. Otherwise, collapses
-                  down to the specified 1-based modifier index.
-
-    Returns confirmation.
-    """
+    """Collapse the modifier stack (bake to mesh)."""
     if client.native_available:
         try:
             payload = _json.dumps({"name": name, "to_index": to_index})
@@ -229,19 +188,8 @@ def collapse_modifier_stack(
     return response.get("result", "")
 
 
-@mcp.tool()
-def make_modifier_unique(name: str, modifier_index: int) -> str:
-    """Make an instanced modifier unique (de-instance it).
-
-    Use this when multiple objects share the same modifier instance and you
-    need to change one without affecting the others.
-
-    Args:
-        name: The object name.
-        modifier_index: 1-based modifier stack index.
-
-    Returns confirmation.
-    """
+def _make_modifier_unique(name: str, modifier_index: int) -> str:
+    """Make an instanced modifier unique (de-instance)."""
     if client.native_available:
         try:
             payload = _json.dumps({"name": name, "modifier_index": modifier_index})
@@ -269,29 +217,14 @@ def make_modifier_unique(name: str, modifier_index: int) -> str:
     return response.get("result", "")
 
 
-@mcp.tool()
-def batch_modify(
+def _batch_modify(
     modifier_class: str,
     property_name: str,
     property_value: str,
     names: Optional[StrList] = None,
     selection_only: bool = False,
 ) -> str:
-    """Batch-set a property on all modifiers of a given class across multiple objects.
-
-    Use this for scene-wide modifier changes — e.g. "set all TurboSmooth
-    iterations to 0" or "disable all Bend modifiers". Much faster and safer
-    than looping via execute_maxscript. Wraps in disableSceneRedraw and undo.
-
-    Args:
-        modifier_class: Class name to match (e.g. "TurboSmooth", "Bend").
-        property_name: Property to set (e.g. "iterations", "angle").
-        property_value: Value as MAXScript expression (e.g. "3", "45.0", "true").
-        names: Optional list of specific object names. If empty, uses all or selection.
-        selection_only: If True and names is empty, only process selected objects.
-
-    Returns count of modified modifiers.
-    """
+    """Batch-set a property on all modifiers of a given class across objects."""
     if client.native_available:
         try:
             payload = {
@@ -341,3 +274,54 @@ def batch_modify(
     )"""
     response = client.send_command(maxscript)
     return response.get("result", "")
+
+
+# ── Unified tool ────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def manage_modifiers(
+    action: str,
+    name: str = "",
+    modifier: str = "",
+    modifier_name: str = "",
+    modifier_index: int = 0,
+    to_index: int = 0,
+    enabled: Optional[bool] = None,
+    enabled_in_views: Optional[bool] = None,
+    enabled_in_renders: Optional[bool] = None,
+    modifier_class: str = "",
+    property_name: str = "",
+    property_value: str = "",
+    names: Optional[StrList] = None,
+    selection_only: bool = False,
+) -> str:
+    """Modifier stack operations. Actions: remove, set_state, collapse, make_unique, batch.
+
+    Args:
+        action: "remove"|"set_state"|"collapse"|"make_unique"|"batch".
+        name: Object name.
+        modifier: Modifier name to remove (for remove).
+        modifier_name: Modifier name for set_state (ignored if modifier_index set).
+        modifier_index: 1-based stack index (for set_state, make_unique).
+        to_index: Collapse to this index; 0=entire stack (for collapse).
+        enabled: Master on/off (for set_state).
+        enabled_in_views: Viewport state (for set_state).
+        enabled_in_renders: Render state (for set_state).
+        modifier_class: Class to match (for batch, e.g. "TurboSmooth").
+        property_name: Property to set (for batch).
+        property_value: Value as MAXScript expression (for batch).
+        names: Specific object names (for batch).
+        selection_only: Only selected objects (for batch).
+    """
+    if action == "remove":
+        return _remove_modifier(name, modifier)
+    if action == "set_state":
+        return _set_modifier_state(name, modifier_name, modifier_index, enabled, enabled_in_views, enabled_in_renders)
+    if action == "collapse":
+        return _collapse_modifier_stack(name, to_index)
+    if action == "make_unique":
+        return _make_modifier_unique(name, modifier_index)
+    if action == "batch":
+        return _batch_modify(modifier_class, property_name, property_value, names, selection_only)
+    return f"Unknown action: {action}. Use: remove, set_state, collapse, make_unique, batch"

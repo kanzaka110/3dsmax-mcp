@@ -16,28 +16,11 @@ def find_class_instances(
     class_name: str,
     superclass: str = "",
 ) -> str:
-    """Find all instances of a class in the entire scene using getclassinstances.
-
-    This searches EVERYWHERE — modifiers, materials, controllers, textures,
-    atmospherics — not just top-level objects. Use this when you need to:
-    - Audit the scene ("what materials/textures/modifiers are in use?")
-    - Find all Bitmaptextures to check file paths
-    - Count how many TurboSmooth or Bend modifiers exist scene-wide
-    - Enumerate all material types with superclass="material"
-    Prefer this over get_materials when you need to find non-assigned materials
-    or non-material classes (textures, modifiers, controllers).
+    """Find all instances of a class scene-wide (modifiers, materials, controllers, textures, etc.).
 
     Args:
-        class_name: The class to search for (e.g. "Bitmaptexture", "Bend",
-                    "VRayMtl", "Noise", "BezierFloat").
-        superclass: Optional superclass to enumerate all concrete classes under it.
-                    E.g. "material", "textureMap", "modifier", "Shadow",
-                    "Atmospheric", "renderEffect", "FloatController".
-                    When provided, class_name is ignored and ALL classes
-                    under the superclass are enumerated with counts.
-
-    Returns:
-        JSON with found instances, counts, and which scene nodes reference them.
+        class_name: Class to search for (e.g. "Bitmaptexture", "Bend", "VRayMtl").
+        superclass: Enumerate all classes under a superclass instead (e.g. "material", "modifier").
     """
     if superclass:
         safe_sc = safe_string(superclass)
@@ -117,16 +100,8 @@ def find_class_instances(
 def get_instances(name: str) -> str:
     """Get all instances (copies sharing the same base object) of a scene object.
 
-    Uses InstanceMgr to detect object-level instancing. Use this when you need
-    to know if editing one object will affect others (instanced objects share
-    geometry — changing one changes all). Also useful before renaming to find
-    all copies that should get the same name pattern.
-
     Args:
-        name: The object name to check for instances.
-
-    Returns:
-        JSON with the instance group: all objects sharing the same base object.
+        name: Object name to check for instances.
     """
     if client.native_available:
         try:
@@ -167,20 +142,11 @@ def get_dependencies(
     name: str,
     direction: str = "dependents",
 ) -> str:
-    """Trace the reference graph for an object using refs.dependents / refs.dependentnodes.
-
-    Use this to understand what an object is connected to — useful for debugging
-    why deleting/modifying one object affects another, or to map out material/
-    controller/modifier sharing across the scene.
+    """Trace the reference graph for an object.
 
     Args:
-        name: The object name to trace.
-        direction: "dependents" (what does this object depend ON — materials,
-                   controllers, modifiers, textures) or "dependentnodes"
-                   (which scene nodes reference this object's components).
-
-    Returns:
-        JSON with dependency information grouped by class.
+        name: Object name to trace.
+        direction: "dependents" (what it depends on) or "dependentnodes" (which nodes reference it).
     """
     if client.native_available:
         try:
@@ -236,19 +202,10 @@ def find_objects_by_property(
 ) -> str:
     """Find scene objects that have a specific property, optionally matching a value.
 
-    Use this for scene-wide queries like "which objects are non-renderable?",
-    "which objects have shadows disabled?", "which lights have multiplier > 1?".
-    Much faster than iterating objects manually via execute_maxscript.
-
     Args:
-        property_name: Property to check (e.g. "renderable", "castshadows",
-                       "primaryVisibility", "material").
-        property_value: Optional value to match (e.g. "false", "true").
-                        If empty, just checks if the property exists and is readable.
+        property_name: Property to check (e.g. "renderable", "castshadows").
+        property_value: Value to match (e.g. "false"). Empty = just check existence.
         class_filter: Optional class name filter (e.g. "Box", "Light").
-
-    Returns:
-        JSON list of matching objects.
     """
     if client.native_available:
         try:

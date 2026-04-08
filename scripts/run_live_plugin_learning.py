@@ -8,7 +8,7 @@ import sys
 from typing import Any
 
 from src.tools.bridge import get_bridge_status
-from src.tools.plugins import discover_plugin_surface, get_plugin_manifest, inspect_plugin_class, inspect_plugin_instance
+from src.tools.plugins import _discover_surface, _get_manifest, _inspect_class, _inspect_instance
 from src.tools.railclone import get_railclone_style_graph
 
 
@@ -94,7 +94,7 @@ def main() -> int:
 
     step = "discover_plugin_surface"
     try:
-        discovered = _load_json(discover_plugin_surface(plugin_name=args.plugin))
+        discovered = _load_json(_discover_surface(plugin_name=args.plugin))
         failed |= not _expect(bool(discovered.get("installed")), step, "plugin is not reported installed")
         failed |= not _expect(
             _normalize(str(discovered.get("plugin", ""))) == normalized_plugin,
@@ -108,7 +108,7 @@ def main() -> int:
 
     step = "get_plugin_manifest"
     try:
-        manifest = _load_json(get_plugin_manifest(args.plugin))
+        manifest = _load_json(_get_manifest(args.plugin))
         failed |= not _expect(bool(manifest.get("installed")), step, "manifest says plugin is not installed")
         failed |= not _expect(
             _normalize(str(manifest.get("plugin", ""))) == normalized_plugin,
@@ -125,7 +125,7 @@ def main() -> int:
     class_name = _choose_class(manifest, args.class_name)
     step = "inspect_plugin_class"
     try:
-        inspected_class = _load_json(inspect_plugin_class(class_name))
+        inspected_class = _load_json(_inspect_class(class_name))
         failed |= not _expect("error" not in inspected_class, step, inspected_class.get("error", "unknown inspect_plugin_class error"))
         failed |= not _expect(inspected_class.get("class") == class_name, step, f"returned class {inspected_class.get('class')!r}")
         failed |= not _expect(isinstance(inspected_class.get("methods"), list), step, "methods is not a list")
@@ -136,7 +136,7 @@ def main() -> int:
 
     step = "inspect_plugin_instance"
     try:
-        inspected_instance = _load_json(inspect_plugin_instance(args.object, detail="normal"))
+        inspected_instance = _load_json(_inspect_instance(args.object, detail="normal"))
         failed |= not _expect(
             _normalize(str(inspected_instance.get("primaryPlugin", ""))) == normalized_plugin,
             step,

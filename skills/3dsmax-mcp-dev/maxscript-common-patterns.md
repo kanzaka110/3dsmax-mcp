@@ -428,3 +428,187 @@ for i = 1 to 1000 while found do
 - **Assemblies cannot be unloaded** once loaded via `dotNet.loadAssembly`.
 - **Callbacks registered with functions cannot be persisted.** Only string-based callbacks support `persistent:true`.
 - **Always use `#noPrompt` with `resetMaxFile`** in batch scripts to avoid blocking save dialogs.
+- **DotNet lifetime control**: unreferenced .NET objects may not be collected by MAXScript GC. Use `dotNet.setLifetimeControl obj #dotnet` to let .NET manage the object's lifetime, or `#mxs` (default) for MAXScript-managed.
+- **Change handler `do` body runs in isolated context**: cannot reference local variables from surrounding scope. Store state in globals or struct members.
+- **Accumulated change handlers leak**: unmanaged `when` constructs persist and degrade performance. Always store the returned ChangeHandler value and call `deleteChangeHandler` to dismiss.
+- **Bitmap memory**: `close bm` after `openBitmap`/`renderMap` to release memory. Unclosed bitmaps accumulate. Use `freeSceneBitmaps()` to flush texture caches.
+
+## INI File I/O (Built-in)
+
+```maxscript
+-- Read
+val = getINISetting @"C:\config.ini" "Section" "Key"
+
+-- Write
+setINISetting @"C:\config.ini" "Section" "Key" "Value"
+
+-- Delete key
+delINISetting @"C:\config.ini" "Section" "Key"
+-- Delete section
+delINISetting @"C:\config.ini" "Section"
+
+-- List all sections
+getINISetting @"C:\config.ini"
+-- List all keys in a section
+getINISetting @"C:\config.ini" "Section"
+```
+
+Commonly used for tool configuration. Returns empty string `""` if key not found.
+
+## Change Handlers (when construct)
+
+Monitor object attribute changes:
+```maxscript
+-- Monitor transform changes
+local handler = when transform $Box001 changes val do (
+    format "Box moved to: %\n" $Box001.pos
+)
+
+-- Monitor multiple objects
+when geometry selection changes do (
+    format "Geometry changed on selection\n"
+)
+
+-- Monitor name changes
+when name $* changes do (
+    format "Something renamed\n"
+)
+
+-- Dismiss handler
+deleteChangeHandler handler
+```
+
+Monitorable attributes: `geometry`, `topology`, `names`, `transform`, `select`, `subobjectSelect`, `parameters`, `controller`.
+
+**handleAt parameter**: controls when callback fires:
+```maxscript
+-- Default: fires at unknown time (possibly mid-operation)
+when transform $Box001 changes do (...)
+
+-- Fire at redraw time (safer for UI updates)
+when transform $Box001 changes handleAt:#redrawViews do (...)
+```
+
+**Deletion monitoring:**
+```maxscript
+when $Box001 deleted obj do (
+    format "% was deleted\n" obj.name
+)
+```
+
+## Node Event System (3ds Max 2009+)
+
+More comprehensive than `when` constructs. Catches events that `when` misses (undo/redo, linking, layer changes).
+
+```maxscript
+fn myCallback evt nd = (
+    format "Event: % on nodes: %\n" evt nd
+)
+
+nec = NodeEventCallback mouseUp:true delay:200 \
+    added:myCallback \
+    deleted:myCallback \
+    nameChanged:myCallback \
+    geometryChanged:myCallback \
+    topologyChanged:myCallback \
+    materialChanged:myCallback \
+    wireColorChanged:myCallback \
+    selectionChanged:myCallback \
+    linkChanged:myCallback \
+    layerChanged:myCallback \
+    controllerChanged:myCallback \
+    hideChanged:myCallback \
+    freezeChanged:myCallback
+
+-- Disable/enable
+nec.enabled = false
+nec.enabled = true
+
+-- Cleanup (critical!)
+nec = undefined
+gc light:true
+```
+
+`mouseUp:true` delays firing until mouse release (prevents per-frame spam during dragging). `delay:` coalesces rapid events (ms).
+
+## Viewport Redraw Callbacks
+
+Draw custom overlays in viewports:
+```maxscript
+fn myRedrawCallback = (
+    gw.setTransform (matrix3 1)
+    gw.text [10,10,0] "Hello Viewport" color:yellow
+    gw.enlargeUpdateRect #whole
+    gw.updateScreen()
+)
+
+-- Register
+registerRedrawViewsCallback myRedrawCallback
+
+-- Unregister (ALWAYS clean up — leaks cause permanent lag)
+unRegisterRedrawViewsCallback myRedrawCallback
+```
+
+**Warning**: Heavy operations in redraw callbacks cause viewport lag. Keep callback functions minimal.
+
+## Garbage Collection Details
+
+```maxscript
+-- Full GC: frees all reclaimable values, FLUSHES UNDO BUFFER
+gc()
+
+-- Light GC: skips MAXWrapper values, preserves undo
+gc light:true
+
+-- Check heap usage
+heapSize     -- current heap allocation (bytes)
+heapFree     -- available heap (bytes)
+```
+
+**How automatic GC works:**
+1. Heap runs low → tries light GC first (preserves undo)
+2. If insufficient → full GC (flushes undo buffer)
+3. If still insufficient → expands heap
+
+**Rules:**
+- Use `gc light:true` in tools where undo preservation matters
+- Call `gc()` (full) to release locked file handles from errored scripts
+- Never rely on `gc light:true` to collect node references — they are MAXWrapper-derived
+- Heavy scripts should periodically `gc light:true` to prevent GC pauses at unpredictable moments
+
+## Debugging Techniques
+
+**MAXScript Debugger** (built-in):
+- Open via MAXScript menu → Debugger
+- Supports breakpoints, step-through, variable inspection
+- Manual breakpoint: insert `break()` in code
+- Examine locals, globals, and call stack while paused
+
+**Profiling with timeStamp:**
+```maxscript
+t1 = timeStamp()
+-- code to profile
+t2 = timeStamp()
+format "Elapsed: %ms\n" (t2 - t1)
+```
+
+**Runtime inspection:**
+```maxscript
+classOf obj             -- exact class
+superClassOf obj        -- superclass
+showProperties obj      -- list all properties
+showMethods obj         -- list all methods
+showInterfaces obj      -- list all interfaces
+isValidNode obj         -- check if node reference is still valid
+isProperty obj #name    -- check if property exists
+getMAXScriptHost()      -- determine execution context
+```
+
+**Error source info (3ds Max 2018+):**
+```maxscript
+try ( riskyOp() ) catch (
+    format "Error: %\n" (getCurrentException())
+    format "File: %\n" (getErrorSourceFileName())
+    format "Line: %\n" (getErrorSourceFileLine())
+)
+```

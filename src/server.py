@@ -61,7 +61,7 @@ def max_assistant() -> str:
         "Use capture_viewport for fast viewport context.\n"
         f"Reference resource: {SKILL_RESOURCE_URI}\n"
     )
-    return f"{base_rules}\nFull reference:\n\n{_read_skill_file()}"
+    return base_rules
 
 
 def main():

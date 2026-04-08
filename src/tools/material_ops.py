@@ -441,23 +441,13 @@ def assign_material(
     material_name: str = "",
     params: str = "",
 ) -> str:
-    """Create a material and assign it to one or more objects.
-
-    Use this when the user wants to apply a new material to objects — e.g.
-    "make the body chrome", "give it a glass material", "assign Arnold surface".
-    Creates the material, optionally sets initial parameters, and assigns it.
-    To modify an existing material's properties, use set_material_property instead.
+    """Create a material and assign it to objects.
 
     Args:
-        names: List of object names to assign the material to.
-        material_class: Material class name (e.g. "ai_standard_surface",
-                        "PhysicalMaterial", "StandardMaterial", "Multimaterial").
-        material_name: Optional name for the material. Auto-generated if empty.
-        params: Optional MAXScript parameters for creation
-                (e.g. "base_color:(color 200 50 50) metalness:1.0").
-
-    Returns:
-        Confirmation with material name and assigned object count.
+        names: Object names to assign the material to.
+        material_class: Material class (e.g. "ai_standard_surface", "PhysicalMaterial").
+        material_name: Display name for the material. Auto-generated if empty.
+        params: MAXScript creation params (e.g. "base_color:(color 200 50 50) metalness:1.0").
     """
     if client.native_available:
         payload = {
@@ -499,43 +489,13 @@ def assign_material(
     return response.get("result", "")
 
 
-@mcp.tool()
-def set_material_property(
+def _set_material_property(
     name: str,
     property: str,
     value: str,
     sub_material_index: int = 0,
 ) -> str:
-    """Set a property on an object's material (or sub-material).
-
-    Use this to change any material parameter — colors, floats, booleans,
-    texture map slots, or clearing maps. This is the write counterpart to
-    inspect_properties with target="material". Handles all material types
-    including Arnold (ai_standard_surface), Physical, Standard, and
-    Multi/Sub-Object (use sub_material_index to target a sub-material).
-
-    Common patterns:
-    - Set color: property="base_color" value="color 200 50 50"
-    - Set float: property="metalness" value="1.0"
-    - Set bool: property="thin_walled" value="true"
-    - Clear a texture map: property="base_color_shader" value="undefined"
-    - Assign a map by variable: property="specular_color_shader" value="thinFilm"
-      (where thinFilm was created via execute_maxscript)
-
-    Args:
-        name: The object name whose material to modify (e.g. "CC_Base_Body").
-        property: Material property name (e.g. "base_color", "metalness",
-                  "specular_roughness", "coat", "base_color_shader").
-                  Use inspect_properties with target="material" to discover names.
-        value: Value as a MAXScript expression (e.g. "1.0", "color 255 0 0",
-               "true", "undefined").
-        sub_material_index: For Multi/Sub-Object materials, 1-based index of
-                           the sub-material to modify. 0 = modify the top-level
-                           material directly (default).
-
-    Returns:
-        Confirmation with the property name and new value, or error message.
-    """
+    """Set a single property on an object's material or sub-material."""
     if client.native_available:
         payload = {
             "name": name,
@@ -581,38 +541,12 @@ def set_material_property(
     return response.get("result", "")
 
 
-@mcp.tool()
-def set_material_properties(
+def _set_material_properties(
     name: str,
     properties: dict[str, str],
     sub_material_index: int = 0,
 ) -> str:
-    """Set multiple properties on an object's material in a single call.
-
-    Use this when you need to change several material parameters at once —
-    e.g. setting up a chrome look (metalness, base_color, specular_roughness,
-    coat all in one call). Much more efficient than multiple set_material_property
-    calls. Each property-value pair is a MAXScript expression.
-
-    Common use cases:
-    - Chrome: {"metalness": "1.0", "base_color": "color 200 210 230",
-               "specular_roughness": "0.05", "coat": "0.8"}
-    - Glass: {"transmission": "0.9", "specular_roughness": "0.0",
-              "specular_IOR": "1.5", "thin_walled": "true"}
-    - Clear all maps: {"base_color_shader": "undefined",
-                       "specular_shader": "undefined",
-                       "subsurface_shader": "undefined"}
-
-    Args:
-        name: The object name whose material to modify.
-        properties: Dictionary of property names to MAXScript value expressions.
-                    e.g. {"metalness": "1.0", "base_color": "color 200 50 50"}
-        sub_material_index: For Multi/Sub-Object materials, 1-based index.
-                           0 = top-level material (default).
-
-    Returns:
-        Summary of all properties set and any errors encountered.
-    """
+    """Set multiple properties on an object's material in one call."""
     if client.native_available:
         payload = {
             "name": name,
@@ -685,26 +619,15 @@ def get_material_slots(
     slot_scope: str = "map",
     max_per_group: int = 15,
 ) -> str:
-    """Get compact material slot/property info without schema caches.
-
-    This is a token-efficient runtime inspector that categorizes material
-    properties into map/color/numeric/bool slots directly from 3ds Max.
-    Use this when an agent needs practical slot names before writing values.
-
-    Prefer slot_scope="map" (default) or "summary" over "all".
-    Using "all" with include_values=True on complex materials (Physical,
-    Arnold) returns 40+ params.
+    """Get categorized material slot/property names (map/color/numeric/bool).
 
     Args:
-        name: Object name whose material should be inspected.
-        sub_material_index: Multi/Sub slot index (1-based). 0 = top material.
-        include_values: Include truncated readback values for each slot.
-        max_slots: Hard cap on inspected properties to control response size.
+        name: Object name whose material to inspect.
+        sub_material_index: 1-based Multi/Sub slot index. 0 = top material.
+        include_values: Include current values for each slot.
+        max_slots: Max properties to inspect (default 40).
         slot_scope: "map" (default), "summary", or "all".
-        max_per_group: Max returned slots per category.
-
-    Returns:
-        Compact JSON with categorized slot names (and optional values).
+        max_per_group: Max slots per category (default 15).
     """
     if client.native_available:
         try:
@@ -955,42 +878,14 @@ def get_material_slots(
     return json.dumps(compact, separators=(",", ":"))
 
 
-@mcp.tool()
-def create_texture_map(
+def _create_texture_map(
     map_class: str,
     map_name: str = "",
     params: str = "",
     properties: dict[str, str] | None = None,
     global_var: str = "",
 ) -> str:
-    """Create a texture map and store it as a MAXScript global variable.
-
-    Use this when you need to create texture maps (OSLMap, Bitmaptexture,
-    ai_bump2d, tyBitmap, Noise, Checker, etc.) that will be wired into
-    material shader slots via set_material_property. The map is stored as
-    a MAXScript global so it can be referenced by name in later calls.
-
-    Common patterns:
-    - OSL map: map_class="OSLMap", params='', then set OSLPath via properties
-    - Bitmap: map_class="Bitmaptexture", properties={"fileName": '"C:/tex.png"'}
-    - Arnold bump: map_class="ai_bump2d", properties={"bump_height": "0.02"}
-    - Noise: map_class="Noise", properties={"size": "10.0"}
-
-    Args:
-        map_class: Texture map class name (e.g. "OSLMap", "Bitmaptexture",
-                   "ai_bump2d", "tyBitmap", "Noise", "Checker", "Gradient").
-        map_name: Optional display name for the map.
-        params: Optional MAXScript creation parameters.
-        properties: Optional dict of property names to MAXScript values to set
-                    after creation. Useful for OSLMap (set OSLPath first, then
-                    set exposed params in a follow-up call).
-        global_var: MAXScript global variable name to store the map as.
-                    If empty, auto-generated from map_name or map_class.
-                    Use this name in set_material_property value field to wire it.
-
-    Returns:
-        Confirmation with the global variable name to reference this map.
-    """
+    """Create a texture map and store it as a MAXScript global variable for later wiring."""
     if client.native_available:
         payload = {
             "map_class": map_class,
@@ -1052,26 +947,11 @@ def create_texture_map(
     return response.get("result", "")
 
 
-@mcp.tool()
-def set_texture_map_properties(
+def _set_texture_map_properties(
     global_var: str,
     properties: dict[str, str],
 ) -> str:
-    """Set properties on a texture map stored as a MAXScript global variable.
-
-    Use this after create_texture_map to configure map parameters — especially
-    useful for OSLMap where parameters are only exposed AFTER setting OSLPath.
-    Two-step OSL workflow: (1) create_texture_map with OSLPath, (2) this tool
-    to set the dynamically exposed shader parameters.
-
-    Args:
-        global_var: The global variable name from create_texture_map.
-        properties: Dict of property names to MAXScript value expressions.
-                    e.g. {"IrisSize": "0.4", "PupilColor": "color 1 1 1"}
-
-    Returns:
-        Summary of properties set and any errors.
-    """
+    """Set properties on a texture map stored as a MAXScript global variable."""
     if client.native_available:
         payload = json.dumps({"global_var": global_var, "properties": properties})
         response = client.send_command(payload, cmd_type="native:set_texture_map_properties")
@@ -1114,8 +994,7 @@ def set_texture_map_properties(
     return response.get("result", "")
 
 
-@mcp.tool()
-def set_sub_material(
+def _set_sub_material(
     name: str,
     sub_material_index: int,
     material_class: str = "",
@@ -1123,27 +1002,7 @@ def set_sub_material(
     params: str = "",
     source_index: int = 0,
 ) -> str:
-    """Create or assign a sub-material in a Multi/Sub-Object material slot.
-
-    Use this to populate individual slots of a Multimaterial — e.g. after
-    creating a Multimaterial with assign_material, fill each slot with the
-    correct shader type. Can create a new material at the slot, or copy
-    a reference from another slot (for shared sub-materials like L/R eyes).
-
-    Args:
-        name: Object name that has the Multimaterial assigned.
-        sub_material_index: 1-based slot index to set (e.g. 1, 2, 3, 4).
-        material_class: Material class to create (e.g. "ai_standard_surface",
-                        "PhysicalMaterial"). Leave empty if using source_index.
-        material_name: Optional name for the new sub-material.
-        params: Optional MAXScript creation parameters.
-        source_index: If > 0, copies the reference from this slot index instead
-                      of creating a new material. Useful for shared sub-materials
-                      (e.g. slot 3 = slot 1 for symmetric parts).
-
-    Returns:
-        Confirmation of the sub-material assignment.
-    """
+    """Create or copy a sub-material into a Multi/Sub-Object slot."""
     if client.native_available:
         payload = {
             "name": name,
@@ -1197,66 +1056,13 @@ def set_sub_material(
     return response.get("result", "")
 
 
-@mcp.tool()
-def write_osl_shader(
+def _write_osl_shader(
     shader_name: str,
     osl_code: str,
     global_var: str = "",
     properties: dict[str, str] | None = None,
 ) -> str:
-    """Write an OSL shader to disk and create an OSLMap from it.
-
-    Use this for procedural shading — write OSL code, auto-save to 3ds Max's
-    temp/osl_shaders/ directory, create an OSLMap that loads the shader, and
-    store it as a MAXScript global variable ready to wire into materials via
-    set_material_property.
-
-    The shader file is saved to: {3dsMax temp}/osl_shaders/{shader_name}.osl
-    After loading, the OSLMap exposes all shader parameters as properties.
-    Use the optional properties dict to set initial parameter values.
-
-    IMPORTANT — OSL rules for 3ds Max 2026:
-    - The shader function name MUST match shader_name exactly
-    - Use UNIQUE shader_name for each new shader (reusing a name may hit a stale cache)
-    - Property names get lowercased by OSLMap (use lowercase keys in properties dict)
-    - color * float multiplication IS valid (e.g. EdgeColor * Boost)
-    - All outputs must be typed: "output color result = 0" or "output float result = 0"
-    - Annotations [[ ]] are optional but valid: float Power = 3.0 [[ string label = "Power" ]]
-    - Standard OSL globals work: N, I, P, u, v, time, dPdu, dPdv
-    - Common functions: mix(), pow(), abs(), dot(), normalize(), noise(), clamp(), smoothstep()
-
-    Working example:
-        shader_name="FresnelGlow"
-        osl_code='''shader FresnelGlow(
-            color CoreColor = color(0.02, 0.02, 0.05),
-            color EdgeColor = color(0.2, 0.6, 1.0),
-            float Power = 3.0,
-            float Boost = 2.0,
-            output color result = 0
-        )
-        {
-            float d = dot(normalize(N), normalize(I));
-            float f = pow(1.0 - abs(d), Power);
-            result = mix(CoreColor, EdgeColor * Boost, f);
-        }'''
-        properties={"power": "4.0", "boost": "3.0"}
-
-    After creation, wire into a material:
-        set_material_property(name="MyObj", property="base_color_shader", value="FresnelGlow")
-
-    Args:
-        shader_name: Name for the shader file and OSLMap. MUST match the shader
-                     function name in osl_code. Use unique names to avoid cache issues.
-        osl_code: Complete OSL shader source code. Must include the shader
-                  function with typed parameters and output(s).
-        global_var: MAXScript global variable name. If empty, derived from
-                    shader_name. Use this name to reference the map later.
-        properties: Optional dict of shader parameter values to set after
-                    loading. Keys MUST be lowercase (e.g. {"power": "4.0"}).
-
-    Returns:
-        Confirmation with file path, global variable name, and compilation status.
-    """
+    """Write OSL shader to disk and create an OSLMap global variable."""
     if not global_var:
         global_var = "".join(c if c.isalnum() or c == "_" else "_" for c in shader_name)
         if global_var[0].isdigit():
@@ -1332,41 +1138,14 @@ def write_osl_shader(
     return response.get("result", "")
 
 
-@mcp.tool()
-def create_material_from_textures(
+def _create_material_from_textures(
     texture_folder: str,
     material_class: str = "",
     material_name: str = "",
     assign_to: StrList | None = None,
     custom_patterns: dict[str, list[str]] | None = None,
 ) -> str:
-    """Create a fully-wired PBR material from a folder of texture maps.
-
-    Point at a folder containing named texture files (e.g. *_basecolor.png,
-    *_roughness.png, *_normal.png) and this tool will auto-detect channels,
-    create the appropriate material for the current renderer, wire all maps
-    with correct color spaces, and optionally assign to objects.
-
-    Supports Arnold (ai_standard_surface), Physical Material, and Redshift.
-    Auto-detects the active renderer if material_class is not specified.
-    Handles compositing (diffuse+AO), inversion (gloss->rough), and
-    intermediate nodes (normal maps, bump2d).
-
-    Args:
-        texture_folder: Path to the folder containing texture files.
-        material_class: Force a specific material class ("ai_standard_surface",
-                        "PhysicalMaterial", "RS_Standard_Material").
-                        If empty, auto-detects from the current renderer.
-        material_name: Name for the created material. If empty, derived from
-                       the folder name.
-        assign_to: Optional list of object names to assign the material to.
-        custom_patterns: Optional dict overriding channel-to-suffix matching.
-                         Keys are channel names (e.g. "diffuse", "roughness"),
-                         values are lists of suffixes (e.g. ["_basecolor", "_albedo"]).
-
-    Returns:
-        Summary of created material, matched channels, and assignment status.
-    """
+    """Create a PBR material from a folder of texture maps with auto-channel detection."""
     # -- Step 1: Scan folder (Python-side) --
     files = _scan_texture_folder(texture_folder)
     if not files:
@@ -1578,8 +1357,7 @@ def _build_shell_maxscript(
     return "(\n    " + "\n    ".join(lines) + "\n)"
 
 
-@mcp.tool()
-def create_shell_material(
+def _create_shell_material(
     shell_name: str,
     render_material_name: str,
     base_color_path: str,
@@ -1588,34 +1366,7 @@ def create_shell_material(
     gltf_material_name: str = "",
     assign_to: StrList | None = None,
 ) -> str:
-    """Create a Shell Material with UberBitmap-based Arnold render slot and glTF export slot.
-
-    Builds a dual-pipeline material: Arnold ai_standard_surface for rendering
-    (originalMaterial, slot 0) and an existing glTF Material for export
-    (bakedMaterial, slot 1).
-
-    The Arnold material uses UberBitmap2 OSL maps with RGB channel splitting
-    via MultiOutputChannelTexmapToTexmap for packed ORM textures:
-    - BaseColor UberBitmap Col(RGB) × ORM R(AO) via ai_multiply → base_color
-    - ORM G → specular_roughness
-    - ORM B → metalness
-    - Optional: Normal UberBitmap → ai_normal_map → ai_bump2d → normal
-
-    Args:
-        shell_name: Name for the Shell Material (e.g. "m_mouse_shell").
-        render_material_name: Name for the Arnold material (e.g. "mouse_real").
-        base_color_path: Path to the BaseColor texture file.
-        orm_path: Path to the OcclusionRoughnessMetallic packed texture file.
-        normal_path: Optional path to the Normal map texture file.
-        gltf_material_name: Name of an existing glTF Material in scene to use
-                            as the baked/export slot. If empty, baked slot is left empty.
-        assign_to: Optional list of object names to assign the shell to.
-                   If empty but gltf_material_name is set, auto-assigns to all
-                   objects currently using that glTF material.
-
-    Returns:
-        JSON with shell_name, render_material, gltf_material, assigned_count, status.
-    """
+    """Create a Shell Material with Arnold render slot and glTF export slot."""
     if client.native_available:
         try:
             payload = json.dumps({
@@ -1652,3 +1403,80 @@ def create_shell_material(
 
     response = client.send_command(maxscript)
     return response.get("result", "{}")
+
+
+# ── Unified tool ────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def manage_material_ops(
+    action: str,
+    name: str = "",
+    property: str = "",
+    value: str = "",
+    sub_material_index: int = 0,
+    properties: dict[str, str] | None = None,
+    material_class: str = "",
+    material_name: str = "",
+    params: str = "",
+    source_index: int = 0,
+    map_class: str = "",
+    map_name: str = "",
+    global_var: str = "",
+    texture_folder: str = "",
+    assign_to: StrList | None = None,
+    custom_patterns: dict[str, list[str]] | None = None,
+    shader_name: str = "",
+    osl_code: str = "",
+    shell_name: str = "",
+    render_material_name: str = "",
+    base_color_path: str = "",
+    orm_path: str = "",
+    normal_path: str = "",
+    gltf_material_name: str = "",
+) -> str:
+    """Material operations. Actions: set_property, set_properties, set_sub, create_texture, set_texture_props, from_textures, create_shell, write_osl.
+
+    Args:
+        action: Operation to perform.
+        name: Object name (for set_property/set_properties/set_sub).
+        property: Property name (for set_property).
+        value: MAXScript value expression (for set_property).
+        sub_material_index: 1-based Multi/Sub slot (for set_property/set_properties/set_sub).
+        properties: Dict of property:value pairs (for set_properties/set_texture_props/write_osl).
+        material_class: Material class (for set_sub).
+        material_name: Material name (for set_sub/from_textures).
+        params: MAXScript creation params (for set_sub/create_texture).
+        source_index: Copy from this slot (for set_sub).
+        map_class: Texture map class (for create_texture).
+        map_name: Display name (for create_texture).
+        global_var: MAXScript global var name (for create_texture/set_texture_props/write_osl).
+        texture_folder: Path to texture folder (for from_textures).
+        assign_to: Object names to assign (for from_textures/create_shell).
+        custom_patterns: Channel pattern overrides (for from_textures).
+        shader_name: OSL shader name (for write_osl).
+        osl_code: OSL source code (for write_osl).
+        shell_name: Shell Material name (for create_shell).
+        render_material_name: Arnold material name (for create_shell).
+        base_color_path: BaseColor texture path (for create_shell).
+        orm_path: ORM texture path (for create_shell).
+        normal_path: Normal map path (for create_shell).
+        gltf_material_name: glTF material name for export slot (for create_shell).
+    """
+    if action == "set_property":
+        return _set_material_property(name, property, value, sub_material_index)
+    if action == "set_properties":
+        return _set_material_properties(name, properties or {}, sub_material_index)
+    if action == "set_sub":
+        return _set_sub_material(name, sub_material_index, material_class, material_name, params, source_index)
+    if action == "create_texture":
+        return _create_texture_map(map_class, map_name, params, properties, global_var)
+    if action == "set_texture_props":
+        return _set_texture_map_properties(global_var, properties or {})
+    if action == "from_textures":
+        return _create_material_from_textures(texture_folder, material_class, material_name, assign_to, custom_patterns)
+    if action == "create_shell":
+        return _create_shell_material(shell_name, render_material_name, base_color_path, orm_path, normal_path, gltf_material_name, assign_to)
+    if action == "write_osl":
+        return _write_osl_shader(shader_name, osl_code, global_var, properties)
+    return f"Unknown action: {action}. Use: set_property, set_properties, set_sub, create_texture, set_texture_props, from_textures, create_shell, write_osl"

@@ -479,3 +479,53 @@ Use `@` instead of inner `"` for strings inside `codeStr`. Pass `filter:on` when
 **Parent dialog to another:** `createDialog child pos:[200,200] parent:parentRollout.hwnd`
 
 **Resizable dialog:** `createDialog myRollout style:#(#style_titlebar, #style_border, #style_sysmenu, #style_resizing)`
+
+---
+
+## WPF Integration from MAXScript
+
+For complex UIs beyond rollouts and WinForms:
+
+```maxscript
+-- Load WPF assemblies
+dotNet.loadAssembly "PresentationFramework"
+dotNet.loadAssembly "PresentationCore"
+dotNet.loadAssembly "WindowsBase"
+
+-- Define XAML as string
+xamlStr = @"<Window xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'
+    xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'
+    Title='My WPF Tool' Width='300' Height='200'>
+    <StackPanel Margin='10'>
+        <TextBlock Text='Hello WPF from MAXScript!' FontSize='16'/>
+        <Button x:Name='btnAction' Content='Do Something' Margin='0,10,0,0'/>
+    </StackPanel>
+</Window>"
+
+-- Parse XAML and create window
+reader = dotNetObject "System.IO.StringReader" xamlStr
+xmlReader = (dotNetClass "System.Xml.XmlReader").Create reader
+wpfWindow = (dotNetClass "System.Windows.Markup.XamlReader").Load xmlReader
+
+-- Parent to 3ds Max (critical for proper window management)
+maxHwnd = (dotNetClass "ManagedServices.AppSDK").GetMaxHWND()
+interopHelper = dotNetObject "System.Windows.Interop.WindowInteropHelper" wpfWindow
+interopHelper.Owner = maxHwnd
+
+-- Find named elements
+btn = wpfWindow.FindName "btnAction"
+
+-- Add event handlers
+fn onBtnClick s e = ( print "WPF button clicked!" )
+dotNet.addEventHandler btn "Click" onBtnClick
+
+-- Show (non-modal)
+wpfWindow.Show()
+-- Show modal: wpfWindow.ShowDialog()
+```
+
+**Key points:**
+- Always parent to Max via `ManagedServices.AppSDK.GetMaxHWND()` — otherwise window goes behind Max
+- Use `MaxCustomControls.dll` for themed controls matching 3ds Max appearance
+- WPF event handlers follow same rules as WinForms: must be global scope
+- **3ds Max 2026+**: .NET Core 8 migration — `CSharpCodeProvider.CompileAssemblyFromSource` removed, use new `CSharpCompilationHelper.Compile` instead

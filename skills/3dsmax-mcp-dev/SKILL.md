@@ -262,7 +262,65 @@ If you catch yourself writing MAXScript that a tool already handles, stop and us
 - `introspect_class` is blocked for OSLMap (663K+ output) — always use `introspect_osl` instead
 - After creation, wire via `set_material_property`
 
-## 9. C++ SDK Pitfalls
+## 9. Python / pymxs Integration
+
+### Architecture
+- `pymxs` wraps the MAXScript engine, NOT the C++ SDK directly
+- MaxPlus was discontinued in 3ds Max 2022 — pymxs is the only supported Python module
+- To use pymxs effectively, you **must understand MAXScript** — same API surface
+
+### When to Use pymxs (over MAXScript)
+- Pipeline tools that work across DCCs (Maya, Blender, Houdini)
+- When you need third-party libraries (NumPy, requests, PIL, JSON)
+- Modern OOP with proper module/import system and unit testing
+- Qt UI via PySide2 (superior to .NET WinForms for complex UIs)
+
+### When to Use MAXScript (over pymxs)
+- **Scripted plugins** (geometry, modifiers, materials, utilities) — **pymxs CANNOT create these**
+- Script controllers and expression controllers
+- When mesh operation performance matters (**pymxs is ~10x slower** for mesh ops)
+- Small daily-use tools and quick automation
+
+### pymxs Limitations
+- **Undo not supported**: pymxs operations are NOT recorded by the undo system
+- **Not thread-safe**: always runs in main thread
+- **Array indexing auto-converts**: Python 0-based ↔ MAXScript 1-based (transparent but can confuse)
+- **Sparse documentation** compared to MAXScript docs
+- Cannot define scripted plugins, script controllers, or custom attributes from Python
+
+### Calling Between Languages
+```maxscript
+-- MAXScript → Python
+python.Execute "print('hello from python')"
+python.Execute "import pymxs; pymxs.runtime.Box()"
+
+-- Python → MAXScript
+import pymxs
+rt = pymxs.runtime
+rt.execute("Box width:10")
+rt.Box(width=10)  -- direct pymxs access
+```
+
+### Hybrid Pattern (Recommended)
+Write **library/pipeline modules in Python**, use **MAXScript for plugin definitions and Max-specific glue**.
+
+### pymxs Stubs for IDE
+Install `friedererdmann/pymxs_stubs` (GitHub) for VS Code/PyCharm autocomplete and type checking.
+
+## 10. Version-Specific Breaking Changes
+
+### 3ds Max 2026
+- **.NET Framework 4.8.1 → .NET Core 8**: `CSharpCodeProvider.CompileAssemblyFromSource` removed. Use new `CSharpCompilationHelper.Compile` static method instead
+- **MenuMan removed**: replaced with `CuiDynamicMenu`/`CuiMenu` API for custom menus
+- **New `kwargs` keyword**: pass Python function parameters from MAXScript
+- **Color management overhaul**: `ColorPipelineMgr` new, `iDisplayGamma` removed
+- **`Matrix3(1)` deprecated**: use `Matrix3()` default constructor
+- **`WStr::operator bool` deleted**: use `.data() && .data()[0]` checks
+
+### 3ds Max 2027
+- Improvements to `getMaxFileObjects` and `mergeMaxFile` — layer information querying and merging support added
+
+## 12. C++ SDK Pitfalls
 
 - `is_array()` / `is_string()` / `is_number_*()` / `is_boolean()` macro collision with MAXScript headers — use `.type() == json::value_t::array` / `::string` / `::number_float` / `::number_integer` / `::boolean` instead
 - `Matrix3(1)` deprecated in Max 2026 — use `Matrix3()` default
@@ -272,14 +330,14 @@ If you catch yourself writing MAXScript that a tool already handles, stop and us
 - `WStr::operator bool` deleted in Max 2026 — use `.data() && .data()[0]` checks
 - Native scene-delta baselines must be scoped per pipe client and cleared on scene reset/fetch; one process-global snapshot leaks across simultaneous agents and unrelated scenes.
 
-## 10. MAXScript Reference Files
+## 13. MAXScript Reference Files
 
 This skill includes bundled MAXScript reference files for writing correct MAXScript. Read the relevant file BEFORE writing MAXScript code for unfamiliar areas.
 
 | File | Covers |
 |------|--------|
 | `maxscript-core-syntax.md` | Variables, scope, types, operators, control flow, collections, strings |
-| `maxscript-common-patterns.md` | Undo blocks, animate blocks, callbacks, file I/O, performance |
+| `maxscript-common-patterns.md` | Undo, animate, callbacks, change handlers, node events, GC, file I/O, debugging, performance |
 | `maxscript-3dsmax-objects.md` | Node creation, transforms, hierarchy, properties, superclasses |
 | `maxscript-mesh-poly-ops.md` | Mesh/poly sub-object ops, vertex/edge/face manipulation |
 | `maxscript-materials-textures.md` | Material creation, texmap wiring, Standard/Physical/Arnold |
@@ -287,7 +345,7 @@ This skill includes bundled MAXScript reference files for writing correct MAXScr
 | `maxscript-rendering-cameras.md` | Render settings, cameras, environment, render elements |
 | `maxscript-splines-shapes.md` | Spline creation, knots, interpolation, shape booleans |
 | `maxscript-scripted-plugins.md` | Custom scripted geometry, modifiers, materials, utilities |
-| `maxscript-ui-rollouts.md` | Rollout UIs, dialogs, controls, event handlers |
+| `maxscript-ui-rollouts.md` | Rollout UIs, dialogs, controls, event handlers, WPF integration |
 
 **IMPORTANT:** Before writing any MAXScript, READ the relevant file. Do not guess syntax.
 
@@ -296,7 +354,7 @@ This skill includes bundled MAXScript reference files for writing correct MAXScr
 Read: skills/3dsmax-mcp-dev/maxscript-materials-textures.md
 ```
 
-## 11. Architecture
+## 14. Architecture
 
 ```
 Agent <-> FastMCP (Python/stdio) <-> Named Pipe <-> C++ GUP Plugin <-> 3ds Max SDK
