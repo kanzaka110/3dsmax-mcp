@@ -18,7 +18,7 @@ git diff --stat
 ### 2단계: GitHub에 푸시
 
 ```bash
-git push myfork master
+git push origin master
 ```
 
 ### 3단계: GCP VM 코드 동기화
