@@ -1,10 +1,44 @@
 import logging
+import os
+import subprocess
+import sys
+import threading
 from functools import lru_cache
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from .max_client import MaxClient
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
+logger = logging.getLogger(__name__)
+
+_MAX_PROCESS_NAME = "3dsmax.exe"
+_WATCHDOG_INTERVAL = 10  # seconds
+
+
+def _is_3dsmax_running() -> bool:
+    """Check if 3dsmax.exe is running via tasklist."""
+    try:
+        result = subprocess.run(
+            ["tasklist", "/FI", f"IMAGENAME eq {_MAX_PROCESS_NAME}", "/NH"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return _MAX_PROCESS_NAME.lower() in result.stdout.lower()
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return True  # assume running if we can't check
+
+
+def _watchdog_loop() -> None:
+    """Background thread that exits the server when 3ds Max closes."""
+    import time
+
+    while True:
+        time.sleep(_WATCHDOG_INTERVAL)
+        if not _is_3dsmax_running():
+            logger.info("3ds Max is no longer running — shutting down MCP server.")
+            os._exit(0)
+
 
 mcp = FastMCP("3dsmax-mcp")
 client = MaxClient()
@@ -65,6 +99,14 @@ def max_assistant() -> str:
 
 
 def main():
+    if not _is_3dsmax_running():
+        logger.info("3ds Max is not running — MCP server will not start.")
+        sys.exit(0)
+
+    watchdog = threading.Thread(target=_watchdog_loop, daemon=True)
+    watchdog.start()
+    logger.info("3ds Max detected — starting MCP server (watchdog active).")
+
     mcp.run(transport="stdio")
 
 
